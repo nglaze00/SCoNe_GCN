@@ -68,7 +68,7 @@ def import_all_files(folder_path):
     paths_unfinished = [p[3].split(';') for p in paths_unfinished]
     return articles, articles_lookup, categories, edges, paths_finished, paths_unfinished
 
-def build_graph(articles_lookup, edges):
+def build_graph(articles_lookup, edges, undirected=False):
     """
     Returns a NetworkX graph representing the links between articles, along with sorted node and edge lists
     """
@@ -76,7 +76,11 @@ def build_graph(articles_lookup, edges):
     for edge in edges:
         G.add_edge(articles_lookup[edge[0]], articles_lookup[edge[1]])
 
-    return G, list(sorted(G.nodes)), list(sorted(G.edges))
+    if undirected:
+        G_undir = G.to_undirected()
+        return G_undir, list(sorted(G_undir.nodes)), list(sorted(G_undir.edges))
+    else:
+        return G, list(sorted(G.nodes)), list(sorted(G.edges))
 
 def find_triangles(G):
     """
@@ -160,7 +164,6 @@ def find_triangles_undir(G_undir):
     V, E = G_undir.nodes, G_undir.edges
     N = len(V)
     found = 0
-
     for i in range(N):
         for j in range(i+1, N):
             for k in range(j+1, N):
@@ -168,10 +171,9 @@ def find_triangles_undir(G_undir):
                     and G_undir.has_edge(j, k) \
                     and G_undir.has_edge(i, k):
                     found += 1
-                    yield [i, j, k]
                     if found % 1000 == 0:
                         print(found)
-
+    print('done {}'.format(found))
 
 
 
@@ -203,65 +205,107 @@ def process_paths(paths, articles_lookup, prefix_length=4):
 
     print("#, ratio of too-short paths: {}, {:.3f}".format(excluded_paths, excluded_paths / len(paths)))
     return paths_grouped
-I = 0
+
 def path_to_flow(path, E_lookup, m):
     '''
     path: list of nodes
     E_lookup: dictionary mapping edge tuples to indices
     m: number of edges
     '''
-    global I
     l = len(path)
     f = np.zeros([m,1])
     for j in range(l-1):
         v0 = path[j]
         v1 = path[j+1]
-        f[E_lookup[(v0, v1)]] += 1 # todo if directed
 
-        # if v0 < v1:               todo if undirected
-        #     k = E_lookup[(v0,v1)]
-        #     f[k] += 1
-        # else:
-        #     k = E_lookup[(v1,v0)]
-        #     f[k] -= 1
+        if v0 < v1:
+            k = E_lookup[(v0,v1)]
+            f[k] += 1
+        else:
+            k = E_lookup[(v1,v0)]
+            f[k] -= 1
     return f
+
+
+def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E):
+    """
+    Converts all path prefixes to flow matrices and saves them to file.
+    Also, extracts the target node following each prefix and one-hot encodes it among the last prefix node's neighbors
+    """
+    max_degree = max(g[1] for g in G.degree)
+
+
+    paths_grouped = process_paths(paths, articles_lookup)
+    E_lookup = {tuple(sorted(E[i])): i for i in range(len(E))}
+    E_lookup.update({tuple(sorted(E[i]))[::-1]: i for i in range(len(E))})
+
+    for path_length, (prefixes, suffixes) in sorted(paths_grouped.items()):
+        print(path_length)
+
+        flows = []
+        targets = []
+        for pref, suff in zip(prefixes, suffixes):
+            # flows
+            try:
+                flow = path_to_flow(pref, E_lookup, len(E))
+                flows.append(flow)
+            except KeyError:
+                print('invalid path; skipping...')
+
+            # target
+            target = suff[0]
+            nbrs = sorted(G[pref[-1]])
+
+            if target not in nbrs:
+                print('invalid path; skipping...')
+                continue
+
+            onehot = (nbrs==target).astype(np.float)
+            onehot_final = np.zeros(max_degree)
+            onehot_final[:onehot.shape[0]] = onehot
+            targets.append(np.array([onehot_final]).T)
+
+
+
+
+        np.save('wiki_data/flows_{}{}'.format(file_prefix, path_length), flows)
+        np.save('wiki_data/targets_{}{}'.format(file_prefix, path_length), targets)
 
 def preprocess_data(folder_path):
     """
     Returns preprocessed Wikispeedia data.
 
-    :dict flows_in: map (path_length -> flows matrix)
-    :arrays B1, B2, Bconds: node->edge, edge->face, and node->nbr edges incidence matrices
+    :dict flows_in: map (path_length -> flows matrix) # todo saved on server
+    :arrays B1, B2, Bconds: node->edge, edge->face, and node->nbr edges incidence matrices # todo big af
+    :dict targets: map (path_length -> targets matrix) # todo code written, but not computed
     """
     # import data
     articles, articles_lookup, categories, edges, paths_finished, paths_unfinished = \
         import_all_files(folder_path)
 
-    # build graph & shift matrices
-    G, V, E = build_graph(articles_lookup, edges)
-    G_undir = G.to_undirected()
-    triangles = list(find_triangles_undir(G_undir))
-    np.save('wiki_data/triangles.npy', triangles)
-    raise Exception
+
+    # build graph
+    G, V, E = build_graph(articles_lookup, edges, undirected=True)
+
+    # find triangles
+    # triangles = find_triangles_undir(G)
+    # np.save('wiki_data/triangles.npy', triangles)
+    # raise Exception
     triangles = np.load('wiki_data/triangles.npy')
-    # B1, B2 = todo
+
+    # build shift matrices
+    # B1, B2, Bconds = todo
+    # np.save('wiki_data/B1', B1)
+    # np.save('wiki_data/B1', B2)
+    # np.save('wiki_data/B1', Bconds)
+
+    # build/save flow and target matrices
+    build_prefix_flows_and_targets('finished', paths_finished, articles_lookup, G, E)
+    build_prefix_flows_and_targets('unfinished', paths_unfinished, articles_lookup, G, E)
 
 
-    # build flows
-    paths_grouped = process_paths(paths_finished, articles_lookup)
-    E_lookup = {E[i]: i for i in range(len(E))}
-
-    flows_in = {}
-    for path_length, (prefixes, suffixes) in sorted(paths_grouped.items()):
-        print(path_length)
-        flows = [path_to_flow(pref, E_lookup, len(E)) for pref in prefixes]
-        flows_in[path_length] = np.array(flows)
 
 
-    # targets = {} todo
-    # return flows_in, [B1, B2, Bconds], targets
 
-
-#     [(400, 1017), (1017, 660), (1000, 11, 1017)]
 
 preprocess_data('wiki_data')

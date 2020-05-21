@@ -112,7 +112,7 @@ def hodge_parallel(weights, S0, S1, Bcond, flows):
 # save_training_data(X, *B_matrices, y, train_mask, test_mask)
 
 # Load data
-X, B_matrices, y, train_mask, test_mask = load_training_data('synthetic_analysis/trajectory_data')
+X, B_matrices, y, train_mask, test_mask = load_training_data('trajectory_data')
 B1, B2, Bconds = B_matrices
 inputs = [Bconds, X]
 
