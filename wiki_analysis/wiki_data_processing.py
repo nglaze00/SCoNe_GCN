@@ -242,19 +242,19 @@ def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E):
     for path_length, (prefixes, suffixes) in sorted(paths_grouped.items()):
         print(path_length)
 
-        flows = []
+        #flows = []
         targets = []
         for pref, suff in zip(prefixes, suffixes):
             # flows
-            try:
-                flow = path_to_flow(pref, E_lookup, len(E))
-                flows.append(flow)
-            except KeyError:
-                print('invalid path; skipping...')
+         #   try:
+          #      flow = path_to_flow(pref, E_lookup, len(E))
+           #     flows.append(flow)
+            #except KeyError:
+             #   print('invalid path; skipping...')
 
             # target
             target = suff[0]
-            nbrs = sorted(G[pref[-1]])
+            nbrs = np.array(sorted(G[pref[-1]]))
 
             if target not in nbrs:
                 print('invalid path; skipping...')
@@ -268,7 +268,7 @@ def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E):
 
 
 
-        np.save('wiki_data/flows_{}{}'.format(file_prefix, path_length), flows)
+        #np.save('wiki_data/flows_{}{}'.format(file_prefix, path_length), flows)
         np.save('wiki_data/targets_{}{}'.format(file_prefix, path_length), targets)
 
 def preprocess_data(folder_path):
@@ -291,7 +291,7 @@ def preprocess_data(folder_path):
     # triangles = find_triangles_undir(G)
     # np.save('wiki_data/triangles.npy', triangles)
     # raise Exception
-    triangles = np.load('wiki_data/triangles.npy')
+   # triangles = np.load('wiki_data/triangles.npy')
 
     # build shift matrices
     # B1, B2, Bconds = todo
