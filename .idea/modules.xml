@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/trajectory-analysis.iml" filepath="$PROJECT_DIR$/.idea/trajectory-analysis.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/path-prediction.iml" filepath="$PROJECT_DIR$/.idea/path-prediction.iml" />
     </modules>
   </component>
 </project>

@@ -9,6 +9,13 @@ Code for processing Wikispeedia dataset for path inferencing using flows
     1/4 of the paths aren't long enough to have a suffix of length n - 4; these can be ignored, right?
     For experiments predicting destination more than one hop away, how will Bconds work? will max degree be # of nodes within that # of hops?
         -Max degree in G is 1845, average is 52
+
+
+# answers:
+    -Include backtracking, and make graph undirected
+    -Order same as in synthetic example
+    -Ignore short paths
+    -Worry about multi hop prediction later - just do one-hop prediction multiple times
 """
 import csv
 from collections import defaultdict
@@ -146,6 +153,28 @@ def find_triangles(G):
         sccs.extend(scc for scc in networkx.strongly_connected_components(H)
                     if len(scc) > 1)
 
+def find_triangles_undir(G_undir):
+    """
+    Finds all the triangles in an undirected graph G_undir
+    """
+    V, E = G_undir.nodes, G_undir.edges
+    N = len(V)
+    found = 0
+
+    for i in range(N):
+        for j in range(i+1, N):
+            for k in range(j+1, N):
+                if G_undir.has_edge(i, j) \
+                    and G_undir.has_edge(j, k) \
+                    and G_undir.has_edge(i, k):
+                    found += 1
+                    yield [i, j, k]
+                    if found % 1000 == 0:
+                        print(found)
+
+
+
+
 def process_paths(paths, articles_lookup, prefix_length=4):
     """
     Group paths by length, converts nodes to their indices, and divide them into prefixes and suffixes.
@@ -210,6 +239,10 @@ def preprocess_data(folder_path):
 
     # build graph & shift matrices
     G, V, E = build_graph(articles_lookup, edges)
+    G_undir = G.to_undirected()
+    triangles = list(find_triangles_undir(G_undir))
+    np.save('wiki_data/triangles.npy', triangles)
+    raise Exception
     triangles = np.load('wiki_data/triangles.npy')
     # B1, B2 = todo
 
