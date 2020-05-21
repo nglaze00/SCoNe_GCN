@@ -242,34 +242,41 @@ def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E):
     for path_length, (prefixes, suffixes) in sorted(paths_grouped.items()):
         print(path_length)
 
-        #flows = []
+        flows = []
         targets = []
         for pref, suff in zip(prefixes, suffixes):
+
             # flows
-         #   try:
-          #      flow = path_to_flow(pref, E_lookup, len(E))
-           #     flows.append(flow)
-            #except KeyError:
-             #   print('invalid path; skipping...')
+            try:
+               flow = path_to_flow(pref, E_lookup, len(E))
+            except KeyError:
+               print('invalid path; skipping...')
+               continue
 
             # target
             target = suff[0]
+            if (pref[-1], suff[0]) not in E_lookup.keys():
+                print('invalid path (missing edge); skipping...')
+                continue
+
             nbrs = np.array(sorted(G[pref[-1]]))
 
+
             if target not in nbrs:
-                print('invalid path; skipping...')
+                print('invalid path (target not a neighbor); skipping...')
                 continue
 
             onehot = (nbrs==target).astype(np.float)
             onehot_final = np.zeros(max_degree)
             onehot_final[:onehot.shape[0]] = onehot
+
+            flows.append(flow)
             targets.append(np.array([onehot_final]).T)
 
 
 
-
-        #np.save('wiki_data/flows_{}{}'.format(file_prefix, path_length), flows)
-        np.save('wiki_data/targets_{}{}'.format(file_prefix, path_length), targets)
+        np.save('wiki_data/flow_data/flows_{}{}'.format(file_prefix, path_length), flows)
+        np.save('wiki_data/target_data/targets_{}{}'.format(file_prefix, path_length), targets)
 
 def preprocess_data(folder_path):
     """
