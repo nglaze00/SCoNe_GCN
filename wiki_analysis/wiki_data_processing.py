@@ -16,6 +16,8 @@ Code for processing Wikispeedia dataset for path inferencing using flows
     -Order same as in synthetic example
     -Ignore short paths
     -Worry about multi hop prediction later - just do one-hop prediction multiple times
+
+    todo rerun flows with int8
 """
 import csv
 from collections import defaultdict
@@ -175,6 +177,50 @@ def find_triangles_undir(G_undir):
                         print(found)
     print('done {}'.format(found))
 
+def build_L_upper(triangles, n_edges, E_lookup):
+    """
+    Builds the |E| x |E| upper Laplacian matrix
+
+    :param triangles: list of all triangles in the graph
+    :param n_edges: # of edges in the graph
+    :param E_lookup: map (edge tuple -> index)
+    """
+    L_upper = np.zeros((n_edges, n_edges), dtype='int8')
+    for i, (a,b,c) in enumerate(triangles):
+        ab, ac, bc = E_lookup[(a,b)], E_lookup[(a,c)], E_lookup[(b,c)]
+        # diagonal
+        L_upper[ab, ab] += 1
+        L_upper[bc, bc] += 1
+        L_upper[ac, ac] += 1
+        # off-diagonal
+        L_upper[ab, bc] = 1
+        L_upper[ab, ac] = -1
+        L_upper[ac, bc] = -1
+        i += 1
+        if i % 1000 == 0:
+            print(i)
+    return L_upper
+
+def build_L_lower(E):
+    """
+    Builds |E| x |E| lower Laplacian matrix
+
+    :param V: nodes
+    :param E: edges
+    """
+    L_lower = np.zeros((len(E), len(E)), dtype='int8')
+    for i, (a, b) in enumerate(E):
+        for j, (c, d) in enumerate(E):
+            if i == j:
+                L_lower[i, j] = 2       # 2 along diagonal
+                continue
+            if a == c or b == d:
+                L_lower[i, j] = 1       # (a, b), (a, c)
+            elif a == d or b == c:
+                L_lower[i, j] = -1      # (a, b), (b, c)
+            # else 0
+
+    return L_lower
 
 
 def process_paths(paths, articles_lookup, prefix_length=4):
@@ -227,7 +273,7 @@ def path_to_flow(path, E_lookup, m):
     return f
 
 
-def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E):
+def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E, E_lookup):
     """
     Converts all path prefixes to flow matrices and saves them to file.
     Also, extracts the target node following each prefix and one-hot encodes it among the last prefix node's neighbors
@@ -236,8 +282,7 @@ def build_prefix_flows_and_targets(file_prefix, paths, articles_lookup, G, E):
 
 
     paths_grouped = process_paths(paths, articles_lookup)
-    E_lookup = {tuple(sorted(E[i])): i for i in range(len(E))}
-    E_lookup.update({tuple(sorted(E[i]))[::-1]: i for i in range(len(E))})
+
 
     for path_length, (prefixes, suffixes) in sorted(paths_grouped.items()):
         print(path_length)
@@ -294,25 +339,38 @@ def preprocess_data(folder_path):
     # build graph
     G, V, E = build_graph(articles_lookup, edges, undirected=True)
 
+    E_lookup = {tuple(sorted(E[i])): i for i in range(len(E))}
+    E_lookup.update({tuple(sorted(E[i]))[::-1]: i for i in range(len(E))})
+
     # find triangles
     # triangles = find_triangles_undir(G)
     # np.save('wiki_data/triangles.npy', triangles)
     # raise Exception
-   # triangles = np.load('wiki_data/triangles.npy')
+    triangles = np.load('wiki_data/triangles.npy')
 
-    # build shift matrices
+    # build Bconds
     # B1, B2, Bconds = todo
     # np.save('wiki_data/B1', B1)
     # np.save('wiki_data/B1', B2)
     # np.save('wiki_data/B1', Bconds)
 
+    # Build Laplacian matrices
+
+    # L_lower = build_L_lower(V, E)
+    # np.save('wiki_data/L_lower.npy', L_lower)
+
+    # L_upper = build_L_upper(triangles, len(E), E_lookup)
+    # np.save('wiki_data/L_upper.npy', L_upper)
+
+    L_lower = np.load('wiki_data/L_lower.npy')
+    L_upper = np.load('wiki_data/L_upper.npy')
+
     # build/save flow and target matrices
-    build_prefix_flows_and_targets('finished', paths_finished, articles_lookup, G, E)
-    build_prefix_flows_and_targets('unfinished', paths_unfinished, articles_lookup, G, E)
+    build_prefix_flows_and_targets('finished', paths_finished, articles_lookup, G, E, E_lookup)
+    build_prefix_flows_and_targets('unfinished', paths_unfinished, articles_lookup, G, E, E_lookup)
 
 
 
 
-
-
-preprocess_data('wiki_data')
+if __name__ == '__main__':
+    preprocess_data('wiki_data')
