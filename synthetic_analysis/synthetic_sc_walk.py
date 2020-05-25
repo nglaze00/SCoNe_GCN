@@ -224,6 +224,8 @@ def conditional_incidence_matrix(B1, Nv, D):
     Bcond[:len(Nv),:] = B1[Nv]
     return Bcond
 
+# def indexed_Bconds(Nvs)
+
 
 ### v   Entry points   v ###
 def generate_training_data(n, m):

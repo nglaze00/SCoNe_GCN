@@ -219,6 +219,8 @@ def build_L_lower(E):
             elif a == d or b == c:
                 L_lower[i, j] = -1      # (a, b), (b, c)
             # else 0
+        if i % 1000 == 0:
+            print(i)
 
     return L_lower
 
@@ -345,23 +347,20 @@ def preprocess_data(folder_path):
     # find triangles
     # triangles = find_triangles_undir(G)
     # np.save('wiki_data/triangles.npy', triangles)
-    # raise Exception
     triangles = np.load('wiki_data/triangles.npy')
 
     # build Bconds
-    # B1, B2, Bconds = todo
-    # np.save('wiki_data/B1', B1)
-    # np.save('wiki_data/B1', B2)
+    # Bconds = todo
     # np.save('wiki_data/B1', Bconds)
 
     # Build Laplacian matrices
 
-    # L_lower = build_L_lower(V, E)
+    # L_lower = build_L_lower(E)
     # np.save('wiki_data/L_lower.npy', L_lower)
-
+    # print("L_lower built")
     # L_upper = build_L_upper(triangles, len(E), E_lookup)
     # np.save('wiki_data/L_upper.npy', L_upper)
-
+    # print("L_upper built")
     L_lower = np.load('wiki_data/L_lower.npy')
     L_upper = np.load('wiki_data/L_upper.npy')
 

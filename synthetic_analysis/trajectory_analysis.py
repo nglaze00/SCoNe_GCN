@@ -38,8 +38,10 @@ With train / test splits:
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 import numpy as onp
-from synthetic_analysis.synthetic_sc_walk import load_training_data
+
+from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data
 from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
+
 
 import sys
 
@@ -86,13 +88,13 @@ def hodge_parallel_variable(weights, S_lower, S_upper, Bcond, flows):
 
     cur_out = flows
     for i in range(int(n_layers)):
-        cur_out = np.dot(cur_out, weights[i * 3]) \
-                  + np.dot(np.dot(S_lower, cur_out), weights[i*3 + 1]) \
-                  + np.dot(np.dot(S_upper, cur_out), weights[i*3 + 2])
+        cur_out = cur_out @ weights[i * 3] \
+                  + S_lower @ cur_out @ weights[i*3 + 1] \
+                  + S_upper @ cur_out @ weights[i*3 + 2]
 
         cur_out = relu(cur_out)
 
-    logits = np.dot(np.dot(Bcond, cur_out), weights[-1])
+    logits = Bcond @ cur_out @ weights[-1]
     return logits - logsumexp(logits)
 
 def hodge_parallel(weights, S0, S1, Bcond, flows):
@@ -113,7 +115,9 @@ def hodge_parallel(weights, S0, S1, Bcond, flows):
 
 # Load data
 X, B_matrices, y, train_mask, test_mask = load_training_data('trajectory_data')
+# X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000)
 B1, B2, Bconds = B_matrices
+
 inputs = [Bconds, X]
 
 
