@@ -61,7 +61,7 @@ class Hodge_GCN():
 
 
 
-    def train(self, model, hidden_layers, shifts, inputs, y, in_axes, train_mask):
+    def train(self, model, hidden_layers, shifts, inputs, y, in_axes, train_mask, hops=1):
         """
         Trains a batched GCN model to predict y using the given X and shift operators.
         Model can have any number of shifts and inputs.
@@ -74,6 +74,7 @@ class Hodge_GCN():
         :param in_axes: axes of model inputs to batch over
         :param test_ratio: ratio of data used as test data
         :param train_mask: 1-D binary array
+        :param hops: number of steps to take before returning prediction todo implement
         """
         n_train_samples = sum(train_mask)
 

@@ -33,13 +33,23 @@ With train / test splits:
         gets to loss: 1.207, acc: 0.544, then NaNs
 
 
+# todo
+#   predict distributions, multihop, etc (stuff from paper)
+#   try other accuracy measurements
+#   Experiment: reversing flows, then testing w/ ours and GRETEL
+
+## Other accuracy measurements:
+    todo look at paper
+
+## Multi hop:
+    todo data is generated; next, add support for multi-hop to model code
 """
 
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 import numpy as onp
 
-from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data
+from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
 from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 
 
@@ -83,7 +93,7 @@ def hodge_parallel_variable(weights, S_lower, S_upper, Bcond, flows):
     """
     Hodge parallel model with variable number of layers
     """
-    n_layers = (len(weights) - 1) / (len(shifts) + 1)
+    n_layers = (len(weights) - 1) / 3
     assert n_layers % 1 == 0, 'wrong number of weights'
 
     cur_out = flows
@@ -110,61 +120,103 @@ def hodge_parallel(weights, S0, S1, Bcond, flows):
 
     return logits - logsumexp(logits)
 
-# X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000)
-# save_training_data(X, *B_matrices, y, train_mask, test_mask)
 
-# Load data
-X, B_matrices, y, train_mask, test_mask = load_training_data('trajectory_data')
-# X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000)
-B1, B2, Bconds = B_matrices
-
-inputs = [Bconds, X]
-
-
-# Define shifts
-L1_lower = B1.T @ B1
-L1_upper = B2 @ B2.T
-shifts = [L1_lower, L1_upper]
-
-# train & test splits
-def mask(A, m):
+def data_setup(hops=1, load=True):
     """
-    Masks a 3-D array along its first axis
-
-    :param A: 3D array
-    :param m: 1-D binary array of length A.shape[0]
+    Imports and sets up flow, target, and shift matrices for model training
     """
-    return (onp.multiply(A.transpose(), m)).transpose()
+    # X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000)
+    # save_training_data(X, *B_matrices, y, train_mask, test_mask)
 
-X_train = mask(X, train_mask)
-X_test = mask(X, test_mask)
+    if load:
+        # Load data
+        folder = 'trajectory_data'
+        if hops > 1:
+            folder += '_' + str(hops) + 'hop'
+        X, B_matrices, y, train_mask, test_mask = load_training_data(folder)
+    else:
+        # Generate data
+        X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000, hops=hops)
+        save_training_data(X, *B_matrices, y, train_mask, test_mask, 'trajectory_data_' + str(hops) + 'hop')
 
-inputs_train = [Bconds, X_train]
-inputs_test = [Bconds, X_test]
+    B1, B2, Bconds = B_matrices
+
+    inputs = [Bconds, X]
+
+    # Define shifts
+    L1_lower = B1.T @ B1
+    L1_upper = B2 @ B2.T
+    shifts = [L1_lower, L1_upper]
+
+    # train & test splits
+    def mask(A, m):
+        """
+        Masks a 3-D array along its first axis
+
+        :param A: 3D array
+        :param m: 1-D binary array of length A.shape[0]
+        """
+        return (onp.multiply(A.transpose(), m)).transpose()
+
+    X_train = mask(X, train_mask)
+    X_test = mask(X, test_mask)
+
+    return inputs, y, train_mask, test_mask, shifts
+
+def single_hop_prediction():
+    """
+    Trains a model to predict the next node in each input path (represented as a flow)
+    """
+    inputs, y, train_mask, test_mask, shifts = data_setup()
+
+    # Hyperparameters (from args)
+    epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
+
+    if describe == 1:
+        desc = input("Describe this test: ")
+
+    in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs))
 
 
-y_train = mask(y, train_mask)
-y_test = mask(y, test_mask)
-# print(X.shape, X_train.shape, y.shape, y_train.shape)
+    # Create model
+    hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
+
+    # Train
+    loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs, y, in_axes, train_mask, hops=1)
+
+    # Test
+    test_loss, test_acc = hodge.test(inputs, y, test_mask)
+
+    if describe == 1:
+        print(desc)
+
+def multi_hop_prediction(h):
+    """
+    Trains a model to predict the location of the agent following h additional steps
+    """
+    inputs, y, train_mask, test_mask, shifts = data_setup(hops=h, load=True)
+
+    # Hyperparameters (from args)
+    epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
+
+    if describe == 1:
+        desc = input("Describe this test: ")
+
+    in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs))
+
+    # Create model
+    hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
+
+    # Train
+    loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs, y, in_axes, train_mask, hops=h)
+
+    # Test
+    test_loss, test_acc = hodge.test(inputs, y, test_mask)
+
+    if describe == 1:
+        print(desc)
 
 
-# Hyperparameters (from args)
-epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
-
-if describe == 1:
-    desc = input("Describe this test: ")
-
-in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs_train))
-
-
-# Create model
-hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
-
-# Train
-loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs, y, in_axes, train_mask)
-
-# Test
-test_loss, test_acc = hodge.test(inputs, y, test_mask)
-
-if describe == 1:
-    print(desc)
+if __name__ == '__main__':
+    # single_hop_prediction()
+    multi_hop_prediction(2)

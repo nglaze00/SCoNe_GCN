@@ -224,7 +224,6 @@ def build_L_lower(E):
 
     return L_lower
 
-
 def process_paths(paths, articles_lookup, prefix_length=4):
     """
     Group paths by length, converts nodes to their indices, and divide them into prefixes and suffixes.
@@ -333,28 +332,35 @@ def preprocess_data(folder_path):
     :arrays B1, B2, Bconds: node->edge, edge->face, and node->nbr edges incidence matrices # todo big af
     :dict targets: map (path_length -> targets matrix) # todo code written, but not computed
     """
-    # import data
+    ## import data
     articles, articles_lookup, categories, edges, paths_finished, paths_unfinished = \
         import_all_files(folder_path)
 
 
-    # build graph
+    ## build graph
     G, V, E = build_graph(articles_lookup, edges, undirected=True)
 
     E_lookup = {tuple(sorted(E[i])): i for i in range(len(E))}
     E_lookup.update({tuple(sorted(E[i]))[::-1]: i for i in range(len(E))})
 
-    # find triangles
+    ## find triangles
     # triangles = find_triangles_undir(G)
     # np.save('wiki_data/triangles.npy', triangles)
     triangles = np.load('wiki_data/triangles.npy')
 
-    # build Bconds
+    ## build Bconds
     # Bconds = todo
-    # np.save('wiki_data/B1', Bconds)
+        # get last node's nbrs from G
+        # index B1 with them
+        # pad it
 
-    # Build Laplacian matrices
+    # or:
+        # mult by B1, then index rows
+    # np.save('wiki_data/Bconds', Bconds)
 
+
+
+    ## Build Laplacian matrices
     # L_lower = build_L_lower(E)
     # np.save('wiki_data/L_lower.npy', L_lower)
     # print("L_lower built")

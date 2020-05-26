@@ -224,11 +224,19 @@ def conditional_incidence_matrix(B1, Nv, D):
     Bcond[:len(Nv),:] = B1[Nv]
     return Bcond
 
-# def indexed_Bconds(Nvs)
-
+def multi_hop_neighborhood(G, v, h):
+    """
+    Returns the h-hop neighborhood of node v in graph G
+    """
+    if h == 1:
+        return set(G[v])
+    Nv = set([])
+    for nbr in G[v]:
+        Nv.update(multi_hop_neighborhood(G, nbr, h - 1))
+    return Nv
 
 ### v   Entry points   v ###
-def generate_training_data(n, m):
+def generate_training_data(n, m, hops=1):
     """
     Generates an m-walk synthetic training data over an n-node SC graph
     """
@@ -236,25 +244,29 @@ def generate_training_data(n, m):
     paths, G, E, E_lookup, B1, B2 = synthesize_SC_walks(n, m)
     G_undir = G.to_undirected()
 
-    # get max degree for padding
-    D = np.max(list(dict(G_undir.degree()).values()))
+    # get max one-hop degree for padding
+    D_1hop = np.max(list(dict(G_undir.degree()).values()))
 
     # paths
     # sample, truncate
-    paths_truncated = [p[0:4 + np.random.choice(len(p) - 4)] for p in paths]
-    paths_truncated_in = [p[0:-1] for p in paths_truncated]
+    paths_truncated = [p[:4 + np.random.choice(len(p) - 4 + (hops - 1))] for p in paths]
+    paths_truncated_in = [p[:-hops] for p in paths_truncated]
     paths_truncated_endpoints = [p[-1] for p in paths_truncated]
 
     # convert to flow
     flows_in = [path_to_flow(p, E_lookup, len(E)) for p in paths_truncated_in]
 
     # get conditional incidence matrices
-    paths_truncated_neighbors = [neighborhood(G_undir, p[-1]) for p in paths_truncated_in]
-    print('Mean number of choices: {}'.format(np.mean([len(Nv) for Nv in paths_truncated_neighbors])))
-    Bconds = [conditional_incidence_matrix(B1, Nv, D) for Nv in paths_truncated_neighbors]
+    # paths_truncated_neighbors = [neighborhood(G_undir, p[-1]) for p in paths_truncated_in]
+    paths_truncated_multihop_neighbors = [np.array(sorted(multi_hop_neighborhood(G_undir, p[-1], hops))) for p in paths_truncated_in]
+    print('Mean number of choices: {}'.format(np.mean([len(Nv) for Nv in paths_truncated_multihop_neighbors])))
+    Bconds = [conditional_incidence_matrix(B1, neighborhood(G_undir, p[-1]), D_1hop) for p in paths_truncated_in]
 
+    # get max multi-hop degree for padding
+    D_multihop = max([len(nbrs) for nbrs in paths_truncated_multihop_neighbors])
+    print(D_multihop)
     # create one-hot target vectors
-    targets = [neighborhood_to_onehot(Nv, w, D) for Nv,w in zip(paths_truncated_neighbors, paths_truncated_endpoints)]
+    targets = [neighborhood_to_onehot(Nv, w, D_multihop) for Nv, w in zip(paths_truncated_multihop_neighbors, paths_truncated_endpoints)]
 
     # final matrices
     flows_in = np.array(flows_in)
@@ -268,14 +280,14 @@ def generate_training_data(n, m):
 
     return flows_in, [B1, B2, Bconds], targets, train_mask, test_mask
 
-def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask):
+def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask, folder):
     """
     Saves training dataset to folder
     """
-    if not os.path.isdir("trajectory_data"):
-        os.mkdir("trajectory_data")
+    if not os.path.isdir(folder):
+        os.mkdir(folder)
 
-    file_paths = [os.path.join('trajectory_data', ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask', 'test_mask')]
+    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask', 'test_mask')]
 
     np.save(file_paths[0], flows_in)
     np.save(file_paths[1], B1)
