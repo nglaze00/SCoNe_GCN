@@ -30,10 +30,24 @@ class Hodge_GCN():
         preds = self.model(weights, *self.shifts, *inputs)[mask==1]
         return -np.sum(preds * y[mask==1])
 
-    def accuracy(self, shifts, inputs, y, mask):
+
+    def two_target_acc(self, shifts, inputs, y, mask, others):
+        """
+        Returns how often the true targets are predicted to be more likely than the random neighbor nodes in others
+
+        todo correct?s
+        """
+        preds = self.model(self.weights, *shifts, *inputs)
+        target_probs = onp.exp(onp.max(preds[mask==1], axis=1))
+        other_probs = onp.exp(np.array([preds[i, o] for i, o in enumerate(others)]))
+
+        return onp.average(target_probs > other_probs)
+
+    def accuracy(self, shifts, inputs, y, mask, two_target=True):
         target_choice = np.argmax(y[mask==1], axis=1)
         preds = self.model(self.weights, *shifts, *inputs)
         pred_choice = np.argmax(preds[mask==1], axis=1)
+
         return np.mean(pred_choice == target_choice)
 
     def generate_weights(self, in_channels, hidden_layers, out_channels):
@@ -102,7 +116,7 @@ class Hodge_GCN():
 
 
         # train
-
+        other_choice = onp.random.randint(0, high=y.shape[1], size=n_train_samples)
         for i in range(self.epochs * 10 * N // self.batch_size):
             batch_indices = onp.random.choice(N, self.batch_size, replace=False)
             batch_inputs = [inp[batch_indices] for inp in inputs]
@@ -113,6 +127,9 @@ class Hodge_GCN():
                 cur_loss = self.loss(self.weights, inputs, y, train_mask) / n_train_samples
                 cur_acc = self.accuracy(self.shifts, inputs, y, train_mask)
                 print('Epoch {} -- loss: {:.6f} -- acc {:.3f}'.format(i // 100, cur_loss, cur_acc))
+
+            if i / 100 % 2 == 0:
+                print(self.two_target_acc(shifts, inputs, y, train_mask, other_choice))
 
         if self.verbose:
             print("Epochs: {}, learning rate: {}, batch size: {}, model: {}".format(

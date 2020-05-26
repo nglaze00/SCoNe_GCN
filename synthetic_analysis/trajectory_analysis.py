@@ -218,5 +218,5 @@ def multi_hop_prediction(h):
 
 
 if __name__ == '__main__':
-    # single_hop_prediction()
-    multi_hop_prediction(2)
+    single_hop_prediction()
+    # multi_hop_prediction(2)
