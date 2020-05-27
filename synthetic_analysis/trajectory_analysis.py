@@ -39,19 +39,24 @@ With train / test splits:
 #   Experiment: reversing flows, then testing w/ ours and GRETEL
 
 ## Other accuracy measurements:
-    todo look at paper
+    todo 2-target acc
 
 ## Multi hop:
-    todo data is generated; next, add support for multi-hop to model code
+    todo regenerate
 """
 
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 import numpy as onp
 
-from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
-from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
-
+# from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
+# from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
+try:
+    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
+    from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
+except Exception:
+    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
+    from hodge_trajectory_model import Hodge_GCN
 
 import sys
 
@@ -121,53 +126,57 @@ def hodge_parallel(weights, S0, S1, Bcond, flows):
     return logits - logsumexp(logits)
 
 
-def data_setup(hops=1, load=True):
+def data_setup(hops=(1,), load=True):
     """
-    Imports and sets up flow, target, and shift matrices for model training
+    Imports and sets up flow, target, and shift matrices for model training. Supports generating data for multiple hops
+        at once
     """
     # X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000)
     # save_training_data(X, *B_matrices, y, train_mask, test_mask)
-
-    if load:
-        # Load data
-        folder = 'trajectory_data'
-        if hops > 1:
-            folder += '_' + str(hops) + 'hop'
-        X, B_matrices, y, train_mask, test_mask = load_training_data(folder)
-    else:
+    inputs_all, y_all = [], []
+    if not load:
         # Generate data
-        X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000, hops=hops)
-        save_training_data(X, *B_matrices, y, train_mask, test_mask, 'trajectory_data_' + str(hops) + 'hop')
+        Xs, B_matrices, ys, train_mask, test_mask = generate_training_data(400, 1000, hops=hops)
 
-    B1, B2, Bconds = B_matrices
+    for i in range(len(hops)):
+        if load:
+            # Load data
+            folder = 'trajectory_data_' + str(hops[i]) + 'hop'
+            X, B_matrices, y, train_mask, test_mask = load_training_data(folder)
+            B1, B2, Bconds = B_matrices
+        else:
+            B1, B2, Bconds = B_matrices[0], B_matrices[1], B_matrices[2][i]
+            X, y = Xs[i], ys[i]
+            save_training_data(Xs[i], B1, B2, Bconds, ys[i], train_mask, test_mask, 'trajectory_data_' + str(hops[i]) + 'hop')
 
-    inputs = [Bconds, X]
+        inputs_all.append([Bconds, X])
+        y_all.append(y)
 
-    # Define shifts
-    L1_lower = B1.T @ B1
-    L1_upper = B2 @ B2.T
-    shifts = [L1_lower, L1_upper]
+        # Define shifts
+        L1_lower = B1.T @ B1
+        L1_upper = B2 @ B2.T
+        shifts = [L1_lower, L1_upper]
 
-    # train & test splits
-    def mask(A, m):
-        """
-        Masks a 3-D array along its first axis
+    # Build E_lookup for multi-hop training
+    E_lookup = {}
+    B1_idxs = onp.nonzero(B1.T)  # [columns], [rows]
+    for i in range(0, len(B1_idxs[0]), 2):
+        edge = (B1_idxs[1][i], B1_idxs[0][i])
+        E_lookup[edge] = i
+        E_lookup[(edge[1], edge[0])] = i
 
-        :param A: 3D array
-        :param m: 1-D binary array of length A.shape[0]
-        """
-        return (onp.multiply(A.transpose(), m)).transpose()
+    return inputs_all, y_all, train_mask, test_mask, shifts, E_lookup
 
-    X_train = mask(X, train_mask)
-    X_test = mask(X, test_mask)
-
-    return inputs, y, train_mask, test_mask, shifts
-
-def single_hop_prediction():
+def train_model():
     """
     Trains a model to predict the next node in each input path (represented as a flow)
     """
-    inputs, y, train_mask, test_mask, shifts = data_setup()
+    inputs_all, y_all, train_mask, test_mask, shifts, E_lookup = data_setup(hops=(1,2), load=True)
+
+
+
+    (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
+
 
     # Hyperparameters (from args)
     epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
@@ -175,48 +184,22 @@ def single_hop_prediction():
     if describe == 1:
         desc = input("Describe this test: ")
 
-    in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs))
+    in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs_1hop))
 
 
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
 
     # Train
-    loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs, y, in_axes, train_mask, hops=1)
+    loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
     # Test
-    test_loss, test_acc = hodge.test(inputs, y, test_mask)
+    test_loss, test_acc = hodge.test(inputs_1hop, y_1hop, test_mask)
+
+
 
     if describe == 1:
         print(desc)
-
-def multi_hop_prediction(h):
-    """
-    Trains a model to predict the location of the agent following h additional steps
-    """
-    inputs, y, train_mask, test_mask, shifts = data_setup(hops=h, load=True)
-
-    # Hyperparameters (from args)
-    epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
-
-    if describe == 1:
-        desc = input("Describe this test: ")
-
-    in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs))
-
-    # Create model
-    hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
-
-    # Train
-    loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs, y, in_axes, train_mask, hops=h)
-
-    # Test
-    test_loss, test_acc = hodge.test(inputs, y, test_mask)
-
-    if describe == 1:
-        print(desc)
-
 
 if __name__ == '__main__':
-    single_hop_prediction()
-    # multi_hop_prediction(2)
+    train_model()

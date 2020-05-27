@@ -157,17 +157,15 @@ def generate_random_walks(G, points, valid_idxs, E, E_lookup, m=1000):
 
     return paths
 
-def synthesize_SC_walks(n, m):
+def synthesize_SC_graph(n, m):
     """
-    Generates a random n-node SC graph with holes in it, then does m random walks over it and returns them.
+    Generates a random n-node SC graph with holes in it.
     """
 
     G, V, E, E_lookup, faces, points, valid_idxs = random_SC_graph(n)
     B1, B2 = incidience_matrices(G, V, E, faces)
-    paths = generate_random_walks(G, points, valid_idxs, E, E_lookup, m=m)
 
-
-    return paths, G, E, E_lookup, B1, B2
+    return G, E, E_lookup, B1, B2, points, valid_idxs
 
 
 ### Format as training data for walk prediction ###
@@ -236,49 +234,61 @@ def multi_hop_neighborhood(G, v, h):
     return Nv
 
 ### v   Entry points   v ###
-def generate_training_data(n, m, hops=1):
+def generate_training_data(n, m, hops=(1,)):
     """
-    Generates an m-walk synthetic training data over an n-node SC graph
+    Generates an m-walk synthetic training data over an n-node SC graph. Returns a flows_in, Bconds, and targets
+        as lists of matrices to account for generating datasets with multiple numbers of hops.
     """
 
-    paths, G, E, E_lookup, B1, B2 = synthesize_SC_walks(n, m)
+    G, E, E_lookup, B1, B2, points, valid_idxs = synthesize_SC_graph(n, m)
     G_undir = G.to_undirected()
+
+    paths = generate_random_walks(G, points, valid_idxs, E, E_lookup, m=m)
 
     # get max one-hop degree for padding
     D_1hop = np.max(list(dict(G_undir.degree()).values()))
 
-    # paths
-    # sample, truncate
-    paths_truncated = [p[:4 + np.random.choice(len(p) - 4 + (hops - 1))] for p in paths]
-    paths_truncated_in = [p[:-hops] for p in paths_truncated]
-    paths_truncated_endpoints = [p[-1] for p in paths_truncated]
+    flows_ins = []
+    Bcondss = []
+    targetss = []
 
-    # convert to flow
-    flows_in = [path_to_flow(p, E_lookup, len(E)) for p in paths_truncated_in]
+    # truncate paths (length between 4 and (4 + max(hops))
 
-    # get conditional incidence matrices
-    # paths_truncated_neighbors = [neighborhood(G_undir, p[-1]) for p in paths_truncated_in]
-    paths_truncated_multihop_neighbors = [np.array(sorted(multi_hop_neighborhood(G_undir, p[-1], hops))) for p in paths_truncated_in]
-    print('Mean number of choices: {}'.format(np.mean([len(Nv) for Nv in paths_truncated_multihop_neighbors])))
-    Bconds = [conditional_incidence_matrix(B1, neighborhood(G_undir, p[-1]), D_1hop) for p in paths_truncated_in]
+    paths_truncated = [p[:4 + np.random.choice(len(p) - 4 + (max(hops) - 1))] for p in paths]
+    prefixes = [p[:-max(hops)] for p in paths_truncated]
+    suffixes_with_last_pref = [p[-(max(hops) + 1):] for p in paths_truncated]
 
-    # get max multi-hop degree for padding
-    D_multihop = max([len(nbrs) for nbrs in paths_truncated_multihop_neighbors])
-    print(D_multihop)
-    # create one-hot target vectors
-    targets = [neighborhood_to_onehot(Nv, w, D_multihop) for Nv, w in zip(paths_truncated_multihop_neighbors, paths_truncated_endpoints)]
 
-    # final matrices
-    flows_in = np.array(flows_in)
-    Bconds = np.array(Bconds)
-    targets = np.array(targets)
+    # generate flows_in and targets for 1-hop, 2-hop, and 3-hop prediction
+    for h in hops:
+
+        # paths
+        # convert to flow
+        flows_in = [path_to_flow(p, E_lookup, len(E)) for p in prefixes]
+
+
+        # get conditional incidence matrices
+        penultimate_nbrs = [np.array(sorted(neighborhood(G_undir, s[h - 1]))) for s in suffixes_with_last_pref]
+        endpoints = [s[h] for s in suffixes_with_last_pref]
+
+        # print('Mean number of choices: {}'.format(np.mean([len(Nv) for Nv in paths_truncated_multihop_neighbors])))
+        Bconds = [conditional_incidence_matrix(B1, Nv, D_1hop) for Nv in penultimate_nbrs]
+
+        # get max multi-hop degree for padding
+        # create one-hot target vectors
+        targets = [neighborhood_to_onehot(Nv, w, D_1hop) for Nv, w in zip(penultimate_nbrs, endpoints)]
+
+        # final matrices
+        flows_ins.append(np.array(flows_in))
+        Bcondss.append(np.array(Bconds))
+        targetss.append(np.array(targets))
 
     # train & test masks
-    train_mask = np.asarray([1] * int(flows_in.shape[0] * 0.8) + [0] * int(flows_in.shape[0] * 0.2))
+    train_mask = np.asarray([1] * int(flows_ins[0].shape[0] * 0.8) + [0] * int(flows_ins[0].shape[0] * 0.2))
     np.random.shuffle(train_mask)
     test_mask = 1 - train_mask
 
-    return flows_in, [B1, B2, Bconds], targets, train_mask, test_mask
+    return flows_ins, [B1, B2, Bcondss], targetss, train_mask, test_mask
 
 def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask, folder):
     """
