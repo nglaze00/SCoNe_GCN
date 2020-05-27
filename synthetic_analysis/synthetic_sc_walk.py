@@ -252,12 +252,14 @@ def generate_training_data(n, m, hops=(1,)):
     Bcondss = []
     targetss = []
 
+
     # truncate paths (length between 4 and (4 + max(hops))
 
     paths_truncated = [p[:4 + np.random.choice(len(p) - 4 + (max(hops) - 1))] for p in paths]
     prefixes = [p[:-max(hops)] for p in paths_truncated]
     suffixes_with_last_pref = [p[-(max(hops) + 1):] for p in paths_truncated]
 
+    last_nodes = [s[0] for s in suffixes_with_last_pref]
 
     # generate flows_in and targets for 1-hop, 2-hop, and 3-hop prediction
     for h in hops:
@@ -288,16 +290,17 @@ def generate_training_data(n, m, hops=(1,)):
     np.random.shuffle(train_mask)
     test_mask = 1 - train_mask
 
-    return flows_ins, [B1, B2, Bcondss], targetss, train_mask, test_mask
+    return flows_ins, [B1, B2, Bcondss], targetss, train_mask, test_mask, G_undir, last_nodes
 
-def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask, folder):
+def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask, G_undir, last_nodes, folder):
     """
     Saves training dataset to folder
     """
     if not os.path.isdir(folder):
         os.mkdir(folder)
 
-    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask', 'test_mask')]
+    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask',
+                                                               'test_mask', 'G_undir', 'last_nodes')]
 
     np.save(file_paths[0], flows_in)
     np.save(file_paths[1], B1)
@@ -306,14 +309,18 @@ def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask,
     np.save(file_paths[4], targets)
     np.save(file_paths[5], train_mask)
     np.save(file_paths[6], test_mask)
+    nx.readwrite.write_adjlist(G_undir, file_paths[7])
+    np.save(file_paths[8], last_nodes)
 
 
 def load_training_data(folder):
     """
     Loads training data from trajectory_data folder
     """
-    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask', 'test_mask')]
+    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask',
+                                                               'test_mask', 'G_undir', 'last_nodes')]
 
-    return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:4]], np.load(file_paths[4]), np.load(file_paths[5]), np.load(file_paths[6])
+    return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:4]], np.load(file_paths[4]), \
+           np.load(file_paths[5]), np.load(file_paths[6]), nx.readwrite.read_adjlist(file_paths[7]), np.load(file_paths[8])
 
 

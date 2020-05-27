@@ -36,11 +36,53 @@ class Hodge_GCN():
         pred_choice = np.argmax(preds[mask==1], axis=1)
         return np.mean(pred_choice == target_choice)
 
-    def multi_hop_accuracy(self, shifts, inputs, y, mask, E_lookup, hops):
+    def multi_hop_accuracy(self, shifts, inputs, y, mask, nbrhoods, E_lookup, last_nodes, hops):
         """
         Returns the accuracy of the model in making multi-hop predictions
         """
-        target_choice = np.argmax(y[mask == 1], axis=1)
+
+        cur_inputs = list(inputs)
+        cur_nodes = onp.array(last_nodes)
+        cur_mask = onp.array(mask)
+        for h in range(hops):
+            preds = self.model(self.weights, *shifts, *cur_inputs)
+            pred_choice = onp.argmax(preds[cur_mask == 1], axis=1)
+
+
+
+            if h == hops - 1:
+                return np.sum(pred_choice == onp.argmax(y[cur_mask == 1], axis=1)) / onp.sum(mask)
+            cur_nbrhoods = onp.array(nbrhoods)[cur_nodes]
+
+            next_nodes = []
+            for Nv, c in zip(cur_nbrhoods, pred_choice):
+                next_node = Nv[c[0]]
+                next_nodes.append(next_node)
+
+            # categorize new edges into +1 and -1 orientation
+            next_edge_cols_pos, next_edge_cols_neg = [], []
+            next_edge_rows_pos, next_edge_rows_neg = [], []
+            for idx, (i, j) in enumerate(zip(cur_nodes, next_nodes)):
+                if j == -1:
+                    # Impossible prediction made; don't update its flow, and remove it from the mask for future hops
+                    cur_mask[idx] = 0
+                    continue
+                try:
+                    next_edge_cols_pos.append(E_lookup[(i, j)])
+                    next_edge_rows_pos.append(idx)
+                except KeyError:
+                    next_edge_cols_neg.append(E_lookup[(j, i)])
+                    next_edge_rows_neg.append(idx)
+
+
+
+
+            cur_inputs[1][next_edge_rows_pos, next_edge_cols_pos] = 1
+            cur_inputs[1][next_edge_rows_neg, next_edge_cols_neg] = -1
+
+            # index last node's neighborhood with pred_choice to get what node is next
+            # add (last_node, new_node) to flow
+
 
     def generate_weights(self, in_channels, hidden_layers, out_channels):
         """
@@ -65,9 +107,23 @@ class Hodge_GCN():
         else:
             self.weights = [(in_channels, out_channels)]
 
+    def setup(self, model, hidden_layers, shifts, inputs, y, in_axes, train_mask):
+        """
+        Set up model for training / calling
+        """
+        n_train_samples = sum(train_mask)
 
+        self.shifts = shifts
 
-    def train(self, model, hidden_layers, shifts, inputs, y, in_axes, train_mask):
+        # set up model for batching
+        self.model = vmap(model, in_axes=in_axes)
+
+        # generate weights
+
+        in_channels, out_channels = inputs[-1].shape[-1], y.shape[-1]
+        self.generate_weights(in_channels, hidden_layers, out_channels)
+
+    def train(self, inputs, y, train_mask):
         """
         Trains a batched GCN model to predict y using the given X and shift operators.
         Model can have any number of shifts and inputs.
@@ -82,19 +138,10 @@ class Hodge_GCN():
         :param train_mask: 1-D binary array
         :param hops: number of steps to take before returning prediction todo implement
         """
-        n_train_samples = sum(train_mask)
 
-        self.shifts = shifts
-
-
-        # set up model for batching
-        self.model = vmap(model, in_axes=in_axes)
-
-        # generate weights
         X = inputs[-1]
         N = X.shape[0]
-        in_channels, out_channels = X.shape[-1], y.shape[-1]
-        self.generate_weights(in_channels, hidden_layers, out_channels)
+        n_train_samples = sum(train_mask)
 
         @jit
         def gradient_step(weights, inputs, y):

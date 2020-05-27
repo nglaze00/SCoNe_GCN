@@ -131,23 +131,21 @@ def data_setup(hops=(1,), load=True):
     Imports and sets up flow, target, and shift matrices for model training. Supports generating data for multiple hops
         at once
     """
-    # X, B_matrices, y, train_mask, test_mask = generate_training_data(400, 1000)
-    # save_training_data(X, *B_matrices, y, train_mask, test_mask)
     inputs_all, y_all = [], []
     if not load:
         # Generate data
-        Xs, B_matrices, ys, train_mask, test_mask = generate_training_data(400, 1000, hops=hops)
+        Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes = generate_training_data(400, 1000, hops=hops)
 
     for i in range(len(hops)):
         if load:
             # Load data
             folder = 'trajectory_data_' + str(hops[i]) + 'hop'
-            X, B_matrices, y, train_mask, test_mask = load_training_data(folder)
+            X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes = load_training_data(folder)
             B1, B2, Bconds = B_matrices
         else:
             B1, B2, Bconds = B_matrices[0], B_matrices[1], B_matrices[2][i]
             X, y = Xs[i], ys[i]
-            save_training_data(Xs[i], B1, B2, Bconds, ys[i], train_mask, test_mask, 'trajectory_data_' + str(hops[i]) + 'hop')
+            save_training_data(Xs[i], B1, B2, Bconds, ys[i], train_mask, test_mask, G_undir, last_nodes, 'trajectory_data_' + str(hops[i]) + 'hop')
 
         inputs_all.append([Bconds, X])
         y_all.append(y)
@@ -157,26 +155,23 @@ def data_setup(hops=(1,), load=True):
         L1_upper = B2 @ B2.T
         shifts = [L1_lower, L1_upper]
 
-    # Build E_lookup for multi-hop training
-    E_lookup = {}
-    B1_idxs = onp.nonzero(B1.T)  # [columns], [rows]
-    for i in range(0, len(B1_idxs[0]), 2):
-        edge = (B1_idxs[1][i], B1_idxs[0][i])
-        E_lookup[edge] = i
-        E_lookup[(edge[1], edge[0])] = i
 
-    return inputs_all, y_all, train_mask, test_mask, shifts, E_lookup
+    # Build E_lookup for multi-hop training
+    e = onp.nonzero(B1.T)[1]
+    edges = onp.array_split(e, len(e)/2)
+    E, E_lookup = [], {}
+    for i, e in enumerate(edges):
+        E.append(tuple(e))
+        E_lookup[tuple(e)] = i
+
+    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, last_nodes
 
 def train_model():
     """
     Trains a model to predict the next node in each input path (represented as a flow)
     """
-    inputs_all, y_all, train_mask, test_mask, shifts, E_lookup = data_setup(hops=(1,2), load=True)
-
-
-
+    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, last_nodes = data_setup(hops=(1,2), load=True)
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
-
 
     # Hyperparameters (from args)
     epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
@@ -189,12 +184,24 @@ def train_model():
 
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
+    hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
+
+    # testing multi hop
+
+    max_degree = max(G_undir.degree, key=lambda x:x[1])[1]
+    nbrhoods_dict = {node: onp.array(list(map(int, G_undir[str(node)]))) for node in map(int, sorted(G_undir.nodes))}
+    nbrhoods = onp.zeros((max(nbrhoods_dict.keys()) + 1, max_degree))
+    for node, nbrs in nbrhoods_dict.items():
+        nbrhoods[node, :] = onp.concatenate((nbrs, [-1] * (max_degree - len(nbrs))))
+
+
 
     # Train
-    loss, acc = hodge.train(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
-
+    loss, acc = hodge.train(inputs_1hop, y_1hop, train_mask)
+    print(hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, 2))
     # Test
     test_loss, test_acc = hodge.test(inputs_1hop, y_1hop, test_mask)
+
 
 
 
