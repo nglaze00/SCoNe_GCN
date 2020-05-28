@@ -27,8 +27,13 @@ With train / test splits:
         Training loss: 1.308, training acc: 0.514
         Test loss: 1.312, Test acc: 0.520
     -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200
-        Training loss: 0.7154, training acc: 0.710
-        Test loss: 0.8287, Test acc: 0.685
+        Training loss: 0.584933, training acc: 0.786; 2-hop training acc: 0.12625
+        Test loss: 0.732435, Test acc: 0.715
+    -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 160
+        Training loss: 0.639023, training acc: 0.770
+        0.14125
+        Test loss: 0.634899, Test acc: 0.765
+
     -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200; L_upper = L_lower
         gets to loss: 1.207, acc: 0.544, then NaNs
 
@@ -36,13 +41,17 @@ With train / test splits:
 # todo
 #   predict distributions, multihop, etc (stuff from paper)
 #   try other accuracy measurements
-#   Experiment: reversing flows, then testing w/ ours and GRETEL
+#   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
+#   Adam
+
 
 ## Other accuracy measurements:
     todo 2-target acc
 
+
 ## Multi hop:
-    todo regenerate
+    # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
+    # todo train over distribution ??
 """
 
 import jax.numpy as np
@@ -70,7 +79,7 @@ def hyperparams():
     """
     args = sys.argv
     hyperparams = {'epochs': 100,
-                   'learning_rate': 0.0005,
+                   'learning_rate': 0.01,
                    'batch_size': 100,
                    'hidden_layers': [(3, 8), (3, 8)],
                    'describe': 0}
@@ -181,29 +190,28 @@ def train_model():
 
     in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs_1hop))
 
+    # set up neighborhood data
+    max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
+    nbrhoods_dict = {node: onp.array(list(map(int, G_undir[str(node)]))) for node in map(int, sorted(G_undir.nodes))}
+    nbrhoods = onp.zeros((max(nbrhoods_dict.keys()) + 1, max_degree))
+    for node, nbrs in nbrhoods_dict.items():
+        nbrhoods[node, :] = onp.concatenate((nbrs, [-1] * (max_degree - len(nbrs))))
+    n_nbrs = onp.array([len(nbrhoods_dict[n]) for n in last_nodes])
 
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
     hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
-    # testing multi hop
-
-    max_degree = max(G_undir.degree, key=lambda x:x[1])[1]
-    nbrhoods_dict = {node: onp.array(list(map(int, G_undir[str(node)]))) for node in map(int, sorted(G_undir.nodes))}
-    nbrhoods = onp.zeros((max(nbrhoods_dict.keys()) + 1, max_degree))
-    for node, nbrs in nbrhoods_dict.items():
-        nbrhoods[node, :] = onp.concatenate((nbrs, [-1] * (max_degree - len(nbrs))))
 
 
 
     # Train
-    loss, acc = hodge.train(inputs_1hop, y_1hop, train_mask)
-    print(hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, 2))
+    loss, acc = hodge.train(inputs_1hop, y_1hop, train_mask, n_nbrs)
     # Test
-    test_loss, test_acc = hodge.test(inputs_1hop, y_1hop, test_mask)
+    test_loss, test_acc = hodge.test(inputs_1hop, y_1hop, test_mask, n_nbrs)
 
-
-
+    print(hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2))
+    print(hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs))
 
     if describe == 1:
         print(desc)

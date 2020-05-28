@@ -2,6 +2,7 @@ import numpy as onp
 import jax.numpy as np
 from jax import grad, jit, vmap
 from jax.scipy.special import logsumexp
+from jax.experimental.optimizers import adam
 
 class Hodge_GCN():
     def __init__(self, epochs, step_size, batch_size, verbose=True):
@@ -11,6 +12,8 @@ class Hodge_GCN():
         :param batch_size: # of data points to train over in each gradient step
         :param verbose: whether to print training progress
         """
+
+        self.random_targets = None
 
         self.trained = False
         self.model = None
@@ -30,30 +33,69 @@ class Hodge_GCN():
         preds = self.model(weights, *self.shifts, *inputs)[mask==1]
         return -np.sum(preds * y[mask==1])
 
-    def accuracy(self, shifts, inputs, y, mask):
+    def accuracy(self, shifts, inputs, y, mask, n_nbrs):
         target_choice = np.argmax(y[mask==1], axis=1)
-        preds = self.model(self.weights, *shifts, *inputs)
+        preds = onp.array(self.model(self.weights, *shifts, *inputs))
+
+        # make best choice out of each node's neighbors
+        for i in range(len(preds)):
+            preds[i, n_nbrs[i]:] = -100
+
         pred_choice = np.argmax(preds[mask==1], axis=1)
         return np.mean(pred_choice == target_choice)
 
-    def multi_hop_accuracy(self, shifts, inputs, y, mask, nbrhoods, E_lookup, last_nodes, hops):
+    def two_target_accuracy(self, shifts, inputs, y, mask, n_nbrs):
+        """
+        Computes the ratio of the time the model correctly identifies which of the true target and a random target
+            is correct.
+        """
+        if self.random_targets == None:
+            self.random_targets = onp.random.randint(0, high=n_nbrs, size=inputs[0].shape[0])
+
+        preds = onp.array(self.model(self.weights, *shifts, *inputs))
+
+        # make best choice out of each node's neighbors
+        for i in range(len(preds)):
+            preds[i, n_nbrs[i]:] = -100
+
+        pred_choice = np.argmax(preds[mask == 1], axis=1)
+
+        for i in range(preds.shape[0]):
+            while self.random_targets[i] == pred_choice[i]:
+               self.random_targets[i] = onp.random.randint(0, high=n_nbrs[i])
+
+
+        all_row_idxs = range(len(self.random_targets))
+        random_probs = preds[all_row_idxs, self.random_targets]
+
+        true_choice = onp.argmax(y, axis=1).reshape((y.shape[0],))
+        true_probs = preds[all_row_idxs, true_choice]
+        # print([r[0] for r in random_probs[:20]], [r[0][0] for r in target_probs[:20]])
+
+        return onp.average(true_probs[mask==1] > random_probs[mask==1])
+
+    def multi_hop_accuracy(self, shifts, inputs, y, mask, nbrhoods, E_lookup, last_nodes, n_nbrs, hops):
         """
         Returns the accuracy of the model in making multi-hop predictions
         """
 
         cur_inputs = list(inputs)
         cur_nodes = onp.array(last_nodes)
-        cur_mask = onp.array(mask)
         for h in range(hops):
-            preds = self.model(self.weights, *shifts, *cur_inputs)
-            pred_choice = onp.argmax(preds[cur_mask == 1], axis=1)
+            preds = onp.array(self.model(self.weights, *shifts, *cur_inputs))
+            # make best choice out of each node's neighbors
+            for i in range(len(preds)):
+                preds[i, n_nbrs[i]:] = -100
 
+            pred_choice = onp.argmax(preds, axis=1)
 
+            for i in range(len(pred_choice)):
+                assert pred_choice[i][0] < n_nbrs[i], 'aa'
 
             if h == hops - 1:
-                return np.sum(pred_choice == onp.argmax(y[cur_mask == 1], axis=1)) / onp.sum(mask)
-            cur_nbrhoods = onp.array(nbrhoods)[cur_nodes]
+                return np.average(pred_choice[mask==1] == onp.argmax(y[mask == 1], axis=1))
 
+            cur_nbrhoods = onp.array(nbrhoods)[cur_nodes]
             next_nodes = []
             for Nv, c in zip(cur_nbrhoods, pred_choice):
                 next_node = Nv[c[0]]
@@ -64,9 +106,8 @@ class Hodge_GCN():
             next_edge_rows_pos, next_edge_rows_neg = [], []
             for idx, (i, j) in enumerate(zip(cur_nodes, next_nodes)):
                 if j == -1:
-                    # Impossible prediction made; don't update its flow, and remove it from the mask for future hops
-                    cur_mask[idx] = 0
-                    continue
+                    print(idx, i, j)
+                    raise Exception
                 try:
                     next_edge_cols_pos.append(E_lookup[(i, j)])
                     next_edge_rows_pos.append(idx)
@@ -123,7 +164,7 @@ class Hodge_GCN():
         in_channels, out_channels = inputs[-1].shape[-1], y.shape[-1]
         self.generate_weights(in_channels, hidden_layers, out_channels)
 
-    def train(self, inputs, y, train_mask):
+    def train(self, inputs, y, train_mask, n_nbrs):
         """
         Trains a batched GCN model to predict y using the given X and shift operators.
         Model can have any number of shifts and inputs.
@@ -145,7 +186,7 @@ class Hodge_GCN():
 
         @jit
         def gradient_step(weights, inputs, y):
-            grads = grad(self.loss)(weights, inputs, y, train_mask)
+            grads = grad(self.loss)(weights, inputs, y, self.batch_mask)
 
             for i in range(len(weights)):
                 weights[i] -= self.step_size * grads[i]
@@ -154,17 +195,30 @@ class Hodge_GCN():
 
 
 
+        init_fun, update_fun, get_params = adam(self.step_size)
+
+
+        def adam_step(i, opt_state, inputs, y, mask):
+            g = grad(self.loss)(self.weights, inputs, y, mask)
+            return update_fun(i, g, opt_state)
+
+        self.adam_state = init_fun(self.weights)
+        self.batch_mask = None
+
         # train
-        other_choice = onp.random.randint(0, high=y.shape[1], size=n_train_samples)
         for i in range(self.epochs * 10 * N // self.batch_size):
             batch_indices = onp.random.choice(N, self.batch_size, replace=False)
             batch_inputs = [inp[batch_indices] for inp in inputs]
             batch_y = y[batch_indices]
-            self.weights = gradient_step(self.weights, batch_inputs, batch_y)
+            self.batch_mask = train_mask[batch_indices]
+
+            # self.weights = gradient_step(self.weights, batch_inputs, batch_y)
+            self.adam_state = adam_step(i, self.adam_state, batch_inputs, batch_y, self.batch_mask)
+            self.weights = get_params(self.adam_state)
 
             if self.verbose and i % (N // self.batch_size) == 0:
                 cur_loss = self.loss(self.weights, inputs, y, train_mask) / n_train_samples
-                cur_acc = self.accuracy(self.shifts, inputs, y, train_mask)
+                cur_acc = self.accuracy(self.shifts, inputs, y, train_mask, n_nbrs)
                 print('Epoch {} -- loss: {:.6f} -- acc {:.3f}'.format(i // 100, cur_loss, cur_acc))
 
         if self.verbose:
@@ -172,14 +226,14 @@ class Hodge_GCN():
                 self.epochs, self.step_size, self.batch_size, self.model.__name__)
             )
             print("Training loss: {:.6f}, training acc: {:.3f}".format(cur_loss, cur_acc))
-        return self.loss(self.weights, inputs, y, train_mask), self.accuracy(self.shifts, inputs, y, train_mask)
+        return self.loss(self.weights, inputs, y, train_mask), self.accuracy(self.shifts, inputs, y, train_mask, n_nbrs)
 
-    def test(self, test_inputs, y, test_mask):
+    def test(self, test_inputs, y, test_mask, n_nbrs):
         """
         Return the loss and accuracy for the given inputs
         """
         loss = self.loss(self.weights, test_inputs, y, test_mask) / sum(test_mask)
-        acc = self.accuracy(self.shifts, test_inputs, y, test_mask)
+        acc = self.accuracy(self.shifts, test_inputs, y, test_mask, n_nbrs)
 
         if self.verbose:
             print("Test loss: {:.6f}, Test acc: {:.3f}".format(loss, acc))
