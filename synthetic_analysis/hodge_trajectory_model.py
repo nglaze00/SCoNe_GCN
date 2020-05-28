@@ -164,7 +164,7 @@ class Hodge_GCN():
         in_channels, out_channels = inputs[-1].shape[-1], y.shape[-1]
         self.generate_weights(in_channels, hidden_layers, out_channels)
 
-    def train(self, inputs, y, train_mask, n_nbrs):
+    def train(self, inputs, y, train_mask, test_mask, n_nbrs):
         """
         Trains a batched GCN model to predict y using the given X and shift operators.
         Model can have any number of shifts and inputs.
@@ -183,10 +183,14 @@ class Hodge_GCN():
         X = inputs[-1]
         N = X.shape[0]
         n_train_samples = sum(train_mask)
+        n_test_samples = N - n_train_samples
+        n_batches = n_train_samples // self.batch_size
+
+        batch_mask = ''
 
         @jit
         def gradient_step(weights, inputs, y):
-            grads = grad(self.loss)(weights, inputs, y, self.batch_mask)
+            grads = grad(self.loss)(weights, inputs, y, batch_mask)
 
             for i in range(len(weights)):
                 weights[i] -= self.step_size * grads[i]
@@ -198,35 +202,37 @@ class Hodge_GCN():
         init_fun, update_fun, get_params = adam(self.step_size)
 
 
-        def adam_step(i, opt_state, inputs, y, mask):
-            g = grad(self.loss)(self.weights, inputs, y, mask)
+        def adam_step(i, opt_state, inputs, y):
+            g = grad(self.loss)(self.weights, inputs, y, batch_mask)
             return update_fun(i, g, opt_state)
 
         self.adam_state = init_fun(self.weights)
-        self.batch_mask = None
+        unshuffled_batch_mask = onp.array([1] * self.batch_size + [0] * (N - self.batch_size))
 
         # train
-        for i in range(self.epochs * 10 * N // self.batch_size):
-            batch_indices = onp.random.choice(N, self.batch_size, replace=False)
-            batch_inputs = [inp[batch_indices] for inp in inputs]
-            batch_y = y[batch_indices]
-            self.batch_mask = train_mask[batch_indices]
+        for i in range(self.epochs * n_batches):
+            batch_mask = onp.array(unshuffled_batch_mask)
+            onp.random.shuffle(batch_mask)
+
+            batch_mask = onp.logical_and(batch_mask, train_mask)
 
             # self.weights = gradient_step(self.weights, batch_inputs, batch_y)
-            self.adam_state = adam_step(i, self.adam_state, batch_inputs, batch_y, self.batch_mask)
+            self.adam_state = adam_step(i, self.adam_state, inputs, y)
             self.weights = get_params(self.adam_state)
 
-            if self.verbose and i % (N // self.batch_size) == 0:
-                cur_loss = self.loss(self.weights, inputs, y, train_mask) / n_train_samples
-                cur_acc = self.accuracy(self.shifts, inputs, y, train_mask, n_nbrs)
-                print('Epoch {} -- loss: {:.6f} -- acc {:.3f}'.format(i // 100, cur_loss, cur_acc))
+            if i % n_batches == n_batches - 1:
+                train_loss = self.loss(self.weights, inputs, y, train_mask) / n_train_samples
+                train_acc = self.accuracy(self.shifts, inputs, y, train_mask, n_nbrs)
+                test_loss = self.loss(self.weights, inputs, y, test_mask) / n_test_samples
+                test_acc = self.accuracy(self.shifts, inputs, y, test_mask, n_nbrs)
+                print('Epoch {} -- train loss: {:.6f} -- train acc {:.3f} -- test loss {:.6f} -- test acc {:.3f}'
+                      .format(i // n_batches, train_loss, train_acc, test_loss, test_acc))
 
-        if self.verbose:
-            print("Epochs: {}, learning rate: {}, batch size: {}, model: {}".format(
-                self.epochs, self.step_size, self.batch_size, self.model.__name__)
-            )
-            print("Training loss: {:.6f}, training acc: {:.3f}".format(cur_loss, cur_acc))
-        return self.loss(self.weights, inputs, y, train_mask), self.accuracy(self.shifts, inputs, y, train_mask, n_nbrs)
+
+        print("Epochs: {}, learning rate: {}, batch size: {}, model: {}".format(
+            self.epochs, self.step_size, self.batch_size, self.model.__name__)
+        )
+        return train_loss, train_acc, test_loss, test_acc
 
     def test(self, test_inputs, y, test_mask, n_nbrs):
         """

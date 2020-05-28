@@ -1,38 +1,25 @@
 """
 Results:
-Over training data:
-    -Defaults (Epochs: 100, learning rate: 0.0005, batch size: 100, hidden_layers = (3,8),(3,8), shifts = L_lower, L_upper
-        loss: 1.263, acc: 0.524
-    -hidden_layers = [(3,8),(3,8),(3,8)]
-        loss: 1.055, acc: 0.605
-    -hidden_layers = [(3,16),(3,16),(3,16)]
-        loss: 0.881, acc: 0.648
-    -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200
-        loss: 0.768, acc: 0.697
-    -step_size = 0.0001
-        loss: 1.303, acc: 0.517
-    -step_size = 0.01
-        loss: 1.262, acc: 0.517
-    -L_upper = 0
-        loss: 1.668, acc: 0.318
-    -L_upper = L_lower
-        loss: 1.658, acc: 0.368
-    -L_lower = 0, L_upper = 0 (no shifts)
-        no improvement
-    -L_lower = 0
-        no improvement
 
 With train / test splits:
-    -Defaults:
-        Training loss: 1.308, training acc: 0.514
-        Test loss: 1.312, Test acc: 0.520
-    -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200
-        Training loss: 0.584933, training acc: 0.786; 2-hop training acc: 0.12625
-        Test loss: 0.732435, Test acc: 0.715
-    -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 160
+    -Defaults: [(3,8),(3,8)], epochs = 300, learning rate = 0.01, batch size = 100
+        train loss: 1.150081 -- train acc 0.585 -- test loss 1.230376 -- test acc 0.530
+        2-hop: 0.13875
+        2-target: 0.70125
+
+    -hidden_layers = [(3,16),(3,16),(3,16)]learning rate = 0.001
+        1) epochs = 500: train loss: 0.860433 -- train acc 0.669 -- test loss 1.238347 -- test acc 0.535
+        0.1875
+        0.775
+        2) epochs = 1000: train loss: 0.660450 -- train acc 0.748 -- test loss 1.326550 -- test acc 0.610
+        0.195
+        0.8025
+
+    -hidden_layers = [(3,32),(3,32)], epochs = 500, learning rate = 0.001
+
+    -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 500?
         Training loss: 0.639023, training acc: 0.770
-        0.14125
-        Test loss: 0.634899, Test acc: 0.765
+                0.14125
 
     -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200; L_upper = L_lower
         gets to loss: 1.207, acc: 0.544, then NaNs
@@ -42,7 +29,6 @@ With train / test splits:
 #   predict distributions, multihop, etc (stuff from paper)
 #   try other accuracy measurements
 #   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
-#   Adam
 
 
 ## Other accuracy measurements:
@@ -51,7 +37,6 @@ With train / test splits:
 
 ## Multi hop:
     # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
-    # todo train over distribution ??
 """
 
 import jax.numpy as np
@@ -79,7 +64,7 @@ def hyperparams():
     """
     args = sys.argv
     hyperparams = {'epochs': 100,
-                   'learning_rate': 0.01,
+                   'learning_rate': 0.001,
                    'batch_size': 100,
                    'hidden_layers': [(3, 8), (3, 8)],
                    'describe': 0}
@@ -199,16 +184,14 @@ def train_model():
     n_nbrs = onp.array([len(nbrhoods_dict[n]) for n in last_nodes])
 
     # Create model
-    hodge = Hodge_GCN(epochs, learning_rate, batch_size, verbose=True)
+    hodge = Hodge_GCN(epochs, learning_rate, batch_size)
     hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
 
 
 
     # Train
-    loss, acc = hodge.train(inputs_1hop, y_1hop, train_mask, n_nbrs)
-    # Test
-    test_loss, test_acc = hodge.test(inputs_1hop, y_1hop, test_mask, n_nbrs)
+    train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
 
     print(hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2))
     print(hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs))
