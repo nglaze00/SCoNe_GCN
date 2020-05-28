@@ -12,8 +12,9 @@ With train / test splits:
         training 2hop: 0.1875
         training 2-target: 0.775
         2) epochs = 1000: train loss: 0.660450 -- train acc 0.748 -- test loss 1.326550 -- test acc 0.610
-        0.195
-        0.8025
+        train/test 2-hop: 0.21374999 0.145
+        train/test 2-target: 0.7875 0.75
+
 
     -hidden_layers = [(3,32),(3,32)], epochs = 500, learning rate = 0.001
 
@@ -29,7 +30,7 @@ With train / test splits:
 #   predict distributions, multihop, etc (stuff from paper)
 #   try other accuracy measurements
 #   save models after testing
-#   Use graph instead of Bconds
+#   Use graph instead of Bconds <- tried, but slower
 #   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
 
 ## Multi hop:
