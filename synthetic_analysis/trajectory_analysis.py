@@ -9,8 +9,8 @@ With train / test splits:
 
     -hidden_layers = [(3,16),(3,16),(3,16)]learning rate = 0.001
         1) epochs = 500: train loss: 0.860433 -- train acc 0.669 -- test loss 1.238347 -- test acc 0.535
-        0.1875
-        0.775
+        training 2hop: 0.1875
+        training 2-target: 0.775
         2) epochs = 1000: train loss: 0.660450 -- train acc 0.748 -- test loss 1.326550 -- test acc 0.610
         0.195
         0.8025
@@ -19,7 +19,7 @@ With train / test splits:
 
     -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 500?
         Training loss: 0.639023, training acc: 0.770
-                0.14125
+        0.14125
 
     -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200; L_upper = L_lower
         gets to loss: 1.207, acc: 0.544, then NaNs
@@ -28,16 +28,14 @@ With train / test splits:
 # todo
 #   predict distributions, multihop, etc (stuff from paper)
 #   try other accuracy measurements
+#   save models after testing
+#   Use graph instead of Bconds
 #   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
-
-
-## Other accuracy measurements:
-    todo 2-target acc
-
 
 ## Multi hop:
     # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
 """
+import os
 
 import jax.numpy as np
 from jax.scipy.special import logsumexp
@@ -192,9 +190,19 @@ def train_model():
 
     # Train
     train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
+    train_2hop, test_2hop = hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
+                            hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
+                                                     last_nodes, n_nbrs, 2)
 
-    print(hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2))
-    print(hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs))
+    train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
+                                  hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
+    print(train_2hop, test_2hop)
+    print(train_2target, test_2target)
+    try:
+        os.mkdir('models')
+    except:
+        pass
+    onp.save('models/model', hodge.weights)
 
     if describe == 1:
         print(desc)
