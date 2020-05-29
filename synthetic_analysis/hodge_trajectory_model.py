@@ -105,7 +105,7 @@ class Hodge_GCN():
             next_edge_cols_pos, next_edge_cols_neg = [], []
             next_edge_rows_pos, next_edge_rows_neg = [], []
             for idx, (i, j) in enumerate(zip(cur_nodes, next_nodes)):
-                if j == -1:
+                if j is None:
                     print(idx, i, j)
                     raise Exception
                 try:

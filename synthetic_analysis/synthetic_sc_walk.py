@@ -275,7 +275,6 @@ def generate_training_data(n, m, hops=(1,)):
 
         # print('Mean number of choices: {}'.format(np.mean([len(Nv) for Nv in paths_truncated_multihop_neighbors])))
         Bconds = [conditional_incidence_matrix(B1, Nv, D_1hop) for Nv in penultimate_nbrs]
-
         # get max multi-hop degree for padding
         # create one-hot target vectors
         targets = [neighborhood_to_onehot(Nv, w, D_1hop) for Nv, w in zip(penultimate_nbrs, endpoints)]
@@ -289,6 +288,7 @@ def generate_training_data(n, m, hops=(1,)):
     train_mask = np.asarray([1] * int(flows_ins[0].shape[0] * 0.8) + [0] * int(flows_ins[0].shape[0] * 0.2))
     np.random.shuffle(train_mask)
     test_mask = 1 - train_mask
+
 
     return flows_ins, [B1, B2, Bcondss], targetss, train_mask, test_mask, G_undir, last_nodes
 
@@ -319,8 +319,11 @@ def load_training_data(folder):
     """
     file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask',
                                                                'test_mask', 'G_undir', 'last_nodes')]
+    G_undir = nx.readwrite.read_adjlist(file_paths[7])
+    remap = {node: int(node) for node in G_undir.nodes}
+    G_undir = nx.relabel_nodes(G_undir, remap)
 
     return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:4]], np.load(file_paths[4]), \
-           np.load(file_paths[5]), np.load(file_paths[6]), nx.readwrite.read_adjlist(file_paths[7]), np.load(file_paths[8])
+           np.load(file_paths[5]), np.load(file_paths[6]), G_undir, np.load(file_paths[8])
 
 

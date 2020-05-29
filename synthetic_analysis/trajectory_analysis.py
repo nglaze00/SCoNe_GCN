@@ -45,10 +45,10 @@ import numpy as onp
 # from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
 # from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 try:
-    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
+    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix
     from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 except Exception:
-    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
+    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix
     from hodge_trajectory_model import Hodge_GCN
 
 import sys
@@ -87,7 +87,7 @@ def hyperparams():
 def relu(x):
     return np.maximum(x, 0)
 
-def hodge_parallel_variable(weights, S_lower, S_upper, Bcond, flows):
+def hodge_parallel_variable(weights, S_lower, S_upper, Bcond, Bcond_func, last_node, flows):
     """
     Hodge parallel model with variable number of layers
     """
@@ -102,7 +102,7 @@ def hodge_parallel_variable(weights, S_lower, S_upper, Bcond, flows):
 
         cur_out = relu(cur_out)
 
-    logits = Bcond @ cur_out @ weights[-1]
+    logits = Bcond_func(last_node) @ cur_out @ weights[-1]
     return logits - logsumexp(logits)
 
 def hodge_parallel(weights, S0, S1, Bcond, flows):
@@ -140,7 +140,7 @@ def data_setup(hops=(1,), load=True):
             X, y = Xs[i], ys[i]
             save_training_data(Xs[i], B1, B2, Bconds, ys[i], train_mask, test_mask, G_undir, last_nodes, 'trajectory_data_' + str(hops[i]) + 'hop')
 
-        inputs_all.append([Bconds, X])
+        inputs_all.append([Bconds, None, last_nodes, X])
         y_all.append(y)
 
         # Define shifts
@@ -157,13 +157,33 @@ def data_setup(hops=(1,), load=True):
         E.append(tuple(e))
         E_lookup[tuple(e)] = i
 
-    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, last_nodes
+    # set up neighborhood data
+    max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
+    nbrhoods_dict = {node: onp.array(list(map(int, G_undir[node]))) for node in
+                     map(int, sorted(G_undir.nodes))}
+    nbrhoods = onp.zeros((max(nbrhoods_dict.keys()) + 1, max_degree))
+    for node, nbrs in sorted(nbrhoods_dict.items(), key=lambda x: x[0]):
+        nbrhoods[node, :] = onp.concatenate((nbrs, [None] * (max_degree - len(nbrs))))
+    n_nbrs = onp.array([len(nbrhoods_dict[n]) for n in last_nodes])
+
+    D = max([len(n) for n in nbrhoods_dict.values()])
+    B1_jax = np.array(B1)
+    def Bcond_func(n):
+        Nv = np.array(sorted(neighborhood(G_undir, n)))
+        return conditional_incidence_matrix(B1, Nv, D)
+
+    for i in range(len(inputs_all)):
+        inputs_all[i][1] = Bcond_func
+
+    print(np.where(inputs_all[0][0][0] != inputs_all[0][1](last_nodes[0])))
+
+    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs
 
 def train_model():
     """
     Trains a model to predict the next node in each input path (represented as a flow)
     """
-    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, last_nodes = data_setup(hops=(1,2), load=True)
+    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs = data_setup(hops=(1,2), load=True)
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
 
     # Hyperparameters (from args)
@@ -172,22 +192,16 @@ def train_model():
     if describe == 1:
         desc = input("Describe this test: ")
 
-    in_axes = tuple([None] * (len(shifts) + 1) + [0] * len(inputs_1hop))
+    in_axes = tuple([None] * (len(shifts) + 1) + [0, None, 0, 0])
 
-    # set up neighborhood data
-    max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
-    nbrhoods_dict = {node: onp.array(list(map(int, G_undir[str(node)]))) for node in map(int, sorted(G_undir.nodes))}
-    nbrhoods = onp.zeros((max(nbrhoods_dict.keys()) + 1, max_degree))
-    for node, nbrs in nbrhoods_dict.items():
-        nbrhoods[node, :] = onp.concatenate((nbrs, [-1] * (max_degree - len(nbrs))))
-    n_nbrs = onp.array([len(nbrhoods_dict[n]) for n in last_nodes])
+
 
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size)
     hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
 
-
+    hodge.model(hodge.weights, *shifts, *inputs_1hop)
 
     # Train
     train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
