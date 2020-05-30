@@ -87,7 +87,7 @@ def hyperparams():
 def relu(x):
     return np.maximum(x, 0)
 
-def hodge_parallel_variable(weights, S_lower, S_upper, Bcond, Bcond_func, last_node, flows):
+def hodge_parallel_variable(weights, S_lower, S_upper, Bcond_func, last_node, flows):
     """
     Hodge parallel model with variable number of layers
     """
@@ -134,13 +134,13 @@ def data_setup(hops=(1,), load=True):
             # Load data
             folder = 'trajectory_data_' + str(hops[i]) + 'hop'
             X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes = load_training_data(folder)
-            B1, B2, Bconds = B_matrices
+            B1, B2 = B_matrices
         else:
-            B1, B2, Bconds = B_matrices[0], B_matrices[1], B_matrices[2][i]
+            B1, B2 = B_matrices
             X, y = Xs[i], ys[i]
-            save_training_data(Xs[i], B1, B2, Bconds, ys[i], train_mask, test_mask, G_undir, last_nodes, 'trajectory_data_' + str(hops[i]) + 'hop')
+            save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, 'trajectory_data_' + str(hops[i]) + 'hop')
 
-        inputs_all.append([Bconds, None, last_nodes, X])
+        inputs_all.append([None, np.array(last_nodes), X])
         y_all.append(y)
 
         # Define shifts
@@ -161,21 +161,22 @@ def data_setup(hops=(1,), load=True):
     max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
     nbrhoods_dict = {node: onp.array(list(map(int, G_undir[node]))) for node in
                      map(int, sorted(G_undir.nodes))}
-    nbrhoods = onp.zeros((max(nbrhoods_dict.keys()) + 1, max_degree))
-    for node, nbrs in sorted(nbrhoods_dict.items(), key=lambda x: x[0]):
-        nbrhoods[node, :] = onp.concatenate((nbrs, [None] * (max_degree - len(nbrs))))
     n_nbrs = onp.array([len(nbrhoods_dict[n]) for n in last_nodes])
 
-    D = max([len(n) for n in nbrhoods_dict.values()])
-    B1_jax = np.array(B1)
-    def Bcond_func(n):
-        Nv = np.array(sorted(neighborhood(G_undir, n)))
-        return conditional_incidence_matrix(B1, Nv, D)
+    # Bconds function
+    nbrhoods = np.array([list(sorted(G_undir[n])) + [-1] * (max_degree - len(G_undir[n])) for n in range(max(G_undir.nodes))])
+    nbrhoods = nbrhoods
+
+    B1_jax = np.append(B1, np.zeros((1, B1.shape[1])), axis=0)
+
+    def Bconds_func(n):
+        Nv = nbrhoods[n]
+        return B1_jax[Nv]
 
     for i in range(len(inputs_all)):
-        inputs_all[i][1] = Bcond_func
+        inputs_all[i][0] = Bconds_func
 
-    print(np.where(inputs_all[0][0][0] != inputs_all[0][1](last_nodes[0])))
+    # assert np.equal(Bcondss[0][0], Bconds_func(last_nodes[0])).all()
 
     return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs
 
@@ -186,22 +187,23 @@ def train_model():
     inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs = data_setup(hops=(1,2), load=True)
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
 
+    last_nodes = inputs_1hop[1]
+
     # Hyperparameters (from args)
     epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
 
     if describe == 1:
         desc = input("Describe this test: ")
 
-    in_axes = tuple([None] * (len(shifts) + 1) + [0, None, 0, 0])
-
-
+    in_axes = tuple([None, None, None, None, 0, 0])
 
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size)
     hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
-
+    print([type(a) for a in inputs_1hop])
     hodge.model(hodge.weights, *shifts, *inputs_1hop)
+
 
     # Train
     train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)

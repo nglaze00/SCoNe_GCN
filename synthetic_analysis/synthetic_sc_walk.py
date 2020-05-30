@@ -1,6 +1,9 @@
 import numpy as np
+import jax.numpy as jnp
+import pickle as pkl
 import networkx as nx
 from scipy.spatial import Delaunay
+
 
 import os
 
@@ -290,9 +293,9 @@ def generate_training_data(n, m, hops=(1,)):
     test_mask = 1 - train_mask
 
 
-    return flows_ins, [B1, B2, Bcondss], targetss, train_mask, test_mask, G_undir, last_nodes
+    return flows_ins, [B1, B2, None], targetss, train_mask, test_mask, G_undir, last_nodes
 
-def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask, G_undir, last_nodes, folder):
+def save_training_data(flows_in, B1, B2, targets, train_mask, test_mask, G_undir, last_nodes, folder):
     """
     Saves training dataset to folder
     """
@@ -305,7 +308,6 @@ def save_training_data(flows_in, B1, B2, Bconds, targets, train_mask, test_mask,
     np.save(file_paths[0], flows_in)
     np.save(file_paths[1], B1)
     np.save(file_paths[2], B2)
-    np.save(file_paths[3], Bconds)
     np.save(file_paths[4], targets)
     np.save(file_paths[5], train_mask)
     np.save(file_paths[6], test_mask)
@@ -317,13 +319,13 @@ def load_training_data(folder):
     """
     Loads training data from trajectory_data folder
     """
-    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask',
+    file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'targets', 'train_mask',
                                                                'test_mask', 'G_undir', 'last_nodes')]
-    G_undir = nx.readwrite.read_adjlist(file_paths[7])
+    G_undir = nx.readwrite.read_adjlist(file_paths[6])
     remap = {node: int(node) for node in G_undir.nodes}
     G_undir = nx.relabel_nodes(G_undir, remap)
 
-    return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:4]], np.load(file_paths[4]), \
-           np.load(file_paths[5]), np.load(file_paths[6]), G_undir, np.load(file_paths[8])
+    return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:3]], np.load(file_paths[3]), \
+           np.load(file_paths[4]), np.load(file_paths[5]), G_undir, np.load(file_paths[7])
 
 
