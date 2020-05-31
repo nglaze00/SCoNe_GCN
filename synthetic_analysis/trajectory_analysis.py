@@ -15,12 +15,18 @@ With train / test splits:
         train/test 2-hop: 0.21374999 0.145
         train/test 2-target: 0.7875 0.75
 
+        3) (diff data) train loss: 0.688547 -- train acc 0.725 -- test loss 1.850561 -- test acc 0.520
+        0.14 0.185
+        0.7775 0.73
+
 
     -hidden_layers = [(3,32),(3,32)], epochs = 500, learning rate = 0.001
 
-    -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 500?
-        Training loss: 0.639023, training acc: 0.770
-        0.14125
+    -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 2000
+        train loss: 0.611045 -- train acc 0.745 -- test loss 2.506877 -- test acc 0.505
+        0.11625 0.105
+        0.7975 0.725
+
 
     -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200; L_upper = L_lower
         gets to loss: 1.207, acc: 0.544, then NaNs
@@ -204,22 +210,26 @@ def train_model():
     print([type(a) for a in inputs_1hop])
     hodge.model(hodge.weights, *shifts, *inputs_1hop)
 
-
+    print(min(last_nodes), nbrhoods.shape, inputs_1hop[-1].shape)
     # Train
     train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
-    train_2hop, test_2hop = hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
-                            hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
-                                                     last_nodes, n_nbrs, 2)
 
-    train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
-                                  hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
-    print(train_2hop, test_2hop)
-    print(train_2target, test_2target)
     try:
         os.mkdir('models')
     except:
         pass
     onp.save('models/model', hodge.weights)
+
+    train_2hop, test_2hop = hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
+                            hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
+                                                     last_nodes, n_nbrs, 2)
+
+    print(train_2hop, test_2hop)
+    train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
+                                  hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
+
+    print(train_2target, test_2target)
+
 
     if describe == 1:
         print(desc)

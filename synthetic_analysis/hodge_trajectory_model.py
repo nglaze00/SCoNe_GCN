@@ -49,8 +49,8 @@ class Hodge_GCN():
         Computes the ratio of the time the model correctly identifies which of the true target and a random target
             is correct.
         """
-        if self.random_targets == None:
-            self.random_targets = onp.random.randint(0, high=n_nbrs, size=inputs[0].shape[0])
+        if type(self.random_targets) != onp.ndarray:
+            self.random_targets = onp.random.randint(0, high=n_nbrs, size=inputs[1].shape[0])
 
         preds = onp.array(self.model(self.weights, *shifts, *inputs))
 
@@ -118,8 +118,8 @@ class Hodge_GCN():
 
 
 
-            cur_inputs[1][next_edge_rows_pos, next_edge_cols_pos] = 1
-            cur_inputs[1][next_edge_rows_neg, next_edge_cols_neg] = -1
+            cur_inputs[-1][next_edge_rows_pos, next_edge_cols_pos] = 1
+            cur_inputs[-1][next_edge_rows_neg, next_edge_cols_neg] = -1
 
             # index last node's neighborhood with pred_choice to get what node is next
             # add (last_node, new_node) to flow

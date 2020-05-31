@@ -236,6 +236,64 @@ def multi_hop_neighborhood(G, v, h):
         Nv.update(multi_hop_neighborhood(G, nbr, h - 1))
     return Nv
 
+def flow_to_path(flow, E, last_node):
+    """
+    Given a flow vector and the last node in the path, returns the path
+    """
+    # get edges in path
+    path = [last_node]
+    edges = set()
+    for i in range(len(E)):
+        if flow[i] == 1:
+            edges.add(E[i])
+        elif flow[i] == -1:
+            edges.add(E[i][::-1])
+    # order edges
+    cur_node = last_node
+    while edges:
+        next_edge = None
+        for e in edges:
+            if e[1] == cur_node:
+                next_edge = e
+        if next_edge is None:
+            raise ValueError
+        path.append(next_edge[0])
+        edges.remove(next_edge)
+        cur_node = next_edge[0]
+
+    return path[::-1]
+
+def generate_reversed_flows(flows_in, E, E_lookup, G_undir, last_nodes, targets_1hop, targets_2hop):
+    """
+    Given a flow dataset with 2-hop, reverses the direction of all flows and returns a new dataset
+    """
+    # todo test
+    D = targets_1hop.shape[-1]
+    # build paths from flows, add suffixes
+    paths = [flow_to_path(flows_in[i], E, last_nodes[i]) for i in range(len(flows_in))]
+    choices_1hop = np.argmax(targets_1hop, axis=1)
+    choices_2hop = np.argmax(targets_2hop, axis=1)
+    for i in range(len(flows_in)):
+        suffix = []
+        suffix.append(neighborhood(G_undir, paths[i][-1])[choices_1hop[i]])
+        suffix.append(neighborhood(G_undir, suffix[-1])[choices_2hop[i]])
+        paths[i] += [(last_nodes[i], suffix[0]), (suffix[0], suffix[1])]
+
+    # reverse paths
+    rev_paths = [[e[::-1] for e in path] for path in paths]
+    rev_suffixes = [rev_path[-2:] for rev_path in rev_paths]
+    rev_last_nodes = [p[-3] for p in rev_paths]
+
+    # build reversed flows
+    rev_flows_in = [path_to_flow(path[:-2], E_lookup, len(path) - 2) for path in rev_paths]
+    rev_targets_1hop = [neighborhood_to_onehot(neighborhood(G_undir, rev_paths[i][-1]), rev_suffixes[i][0], D)
+                        for i in range(len(flows_in))]
+    rev_targets_2hop = [neighborhood_to_onehot(neighborhood(G_undir, rev_suffixes[i][0]), rev_suffixes[i][1], D)
+                        for i in range(len(flows_in))]
+
+    return rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes
+
+
 ### v   Entry points   v ###
 def generate_training_data(n, m, hops=(1,)):
     """
@@ -313,7 +371,6 @@ def save_training_data(flows_in, B1, B2, targets, train_mask, test_mask, G_undir
     np.save(file_paths[6], test_mask)
     nx.readwrite.write_adjlist(G_undir, file_paths[7])
     np.save(file_paths[8], last_nodes)
-
 
 def load_training_data(folder):
     """
