@@ -200,7 +200,7 @@ def neighborhood(G, v):
     G: networkx undirected graph
     v: node label
     '''
-    return np.array(G[v])
+    return np.array(sorted(G[v]))
 
 # given an array of nodes and a correct node, return an indicator vector
 def neighborhood_to_onehot(Nv, w, D):
@@ -263,36 +263,55 @@ def flow_to_path(flow, E, last_node):
 
     return path[::-1]
 
-def generate_reversed_flows(flows_in, E, E_lookup, G_undir, last_nodes, targets_1hop, targets_2hop):
+def generate_reversed_flows(flows_in, E, E_lookup, G_undir, last_nodes, targets_1hop, targets_2hop, paths=None):
     """
     Given a flow dataset with 2-hop, reverses the direction of all flows and returns a new dataset
-    """
-    # todo test
-    D = targets_1hop.shape[-1]
-    # build paths from flows, add suffixes
-    paths = [flow_to_path(flows_in[i], E, last_nodes[i]) for i in range(len(flows_in))]
-    choices_1hop = np.argmax(targets_1hop, axis=1)
-    choices_2hop = np.argmax(targets_2hop, axis=1)
-    for i in range(len(flows_in)):
-        suffix = []
-        suffix.append(neighborhood(G_undir, paths[i][-1])[choices_1hop[i]])
-        suffix.append(neighborhood(G_undir, suffix[-1])[choices_2hop[i]])
-        paths[i] += [(last_nodes[i], suffix[0]), (suffix[0], suffix[1])]
 
+    If paths include backtracking, must pass in paths directly
+    """
+    if paths is None:
+
+
+        # build paths from flows, add suffixes
+        paths = [flow_to_path(flows_in[i], E, last_nodes[i]) for i in range(len(flows_in))]
+        choices_1hop = np.argmax(targets_1hop, axis=1)
+        choices_2hop = np.argmax(targets_2hop, axis=1)
+        for i in range(len(flows_in)):
+            suffix = []
+            suffix.append(neighborhood(G_undir, paths[i][-1])[choices_1hop[i]])
+            suffix.append(neighborhood(G_undir, suffix[-1])[choices_2hop[i]])
+            paths[i] += suffix
     # reverse paths
-    rev_paths = [[e[::-1] for e in path] for path in paths]
+    D = targets_1hop.shape[-1]
+    rev_paths = [path[::-1] for path in paths]
     rev_suffixes = [rev_path[-2:] for rev_path in rev_paths]
-    rev_last_nodes = [p[-3] for p in rev_paths]
+    rev_last_nodes = np.array([p[-3] for p in rev_paths])
+    print(rev_paths, rev_suffixes, rev_last_nodes)
 
     # build reversed flows
-    rev_flows_in = [path_to_flow(path[:-2], E_lookup, len(path) - 2) for path in rev_paths]
-    rev_targets_1hop = [neighborhood_to_onehot(neighborhood(G_undir, rev_paths[i][-1]), rev_suffixes[i][0], D)
-                        for i in range(len(flows_in))]
-    rev_targets_2hop = [neighborhood_to_onehot(neighborhood(G_undir, rev_suffixes[i][0]), rev_suffixes[i][1], D)
-                        for i in range(len(flows_in))]
+    rev_flows_in = np.array([path_to_flow(path[:-2], E_lookup, len(E)) for path in rev_paths])
+    rev_targets_1hop = np.array([neighborhood_to_onehot(neighborhood(G_undir, rev_last_nodes[i]), rev_suffixes[i][0], D)
+                        for i in range(len(flows_in))])
+    rev_targets_2hop = np.array([neighborhood_to_onehot(neighborhood(G_undir, rev_suffixes[i][0]), rev_suffixes[i][1], D)
+                        for i in range(len(flows_in))])
 
-    return rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes
+    return rev_flows_in.reshape(flows_in.shape), rev_targets_1hop.reshape(targets_1hop.shape), rev_targets_2hop.reshape(targets_2hop.shape), rev_last_nodes.reshape(len(last_nodes))
 
+## generate_reversed_flows test
+# G_undir = nx.Graph()
+# G_undir.add_edges_from(((0,1), (1,2), (2,3), (3,4), (4,5), (0,5)))
+#
+# E = [(0,1), (1,2), (2,3), (3,4), (4,5), (0,5)]
+# E_lookup = {(0,1): 0, (1,2): 1, (2,3): 2, (3,4): 3, (4,5): 4, (0,5): 5}
+# # 0,1,2,3-2,1  4,5,0,1-2,1   4,3,4,5-0,1
+# # nbrhoods: 0: 1, 5     1: 0, 2     2: 1, 3     3: 2, 4     4: 3, 5     5: 0, 4
+# paths = [[0,1,2,3,2,1], [4,5,0,1,2,1], [4,3,4,5,0,1]]
+# flows_in = np.array([[1, 1, 1, 0, 0, 0], [1, 0, 0, 0, 1, -1], [1, 0, 0, 0, 1, -1]])
+# last_nodes = [3, 1, 5]
+# targets_1hop = np.array([[1, 0], [0, 1], [1, 0]])
+# targets_2hop = np.array([[1, 0], [1, 0], [1, 0]])
+# rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = generate_reversed_flows(flows_in, E, E_lookup, G_undir, last_nodes, targets_1hop, targets_2hop, paths=paths)
+# print(rev_flows_in, rev_targets_1hop, rev_targets_2hop)
 
 ### v   Entry points   v ###
 def generate_training_data(n, m, hops=(1,)):
