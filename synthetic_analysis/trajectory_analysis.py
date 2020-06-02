@@ -19,6 +19,12 @@ With train / test splits:
         0.14 0.185
         0.7775 0.73
 
+        4) (other diff data) train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545
+        2hop: 0.14874999 0.12
+        2-target: 0.75375 0.745
+        reversed Test loss: 1.631899, Test acc: 0.480
+
+
 
     -hidden_layers = [(3,32),(3,32)], epochs = 500, learning rate = 0.001
 
@@ -33,11 +39,11 @@ With train / test splits:
 
 
 # todo
-#   predict distributions, multihop, etc (stuff from paper)
+#   predict distributions, multihop (todo use distributions, not binary), etc (stuff from paper)
 #   try other accuracy measurements
 #   save models after testing
-#   Use graph instead of Bconds <- tried, but slower
 #   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
+#   ablation: remove L1_upper
 
 ## Multi hop:
     # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
@@ -48,13 +54,14 @@ import jax.numpy as np
 from jax.scipy.special import logsumexp
 import numpy as onp
 
+
 # from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
 # from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 try:
-    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix
+    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows
     from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 except Exception:
-    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix
+    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows
     from hodge_trajectory_model import Hodge_GCN
 
 import sys
@@ -72,7 +79,10 @@ def hyperparams():
                    'learning_rate': 0.001,
                    'batch_size': 100,
                    'hidden_layers': [(3, 8), (3, 8)],
-                   'describe': 0}
+                   'describe': 0,
+                   'reverse': 0,
+                   'load_data': 1,
+                   'load_model': 0}
 
     for i in range(len(args) - 1):
         if args[i][0] == '-':
@@ -87,7 +97,7 @@ def hyperparams():
                 hyperparams[args[i][1:]] = float(args[i+1])
     print(hyperparams)
     return hyperparams['epochs'], hyperparams['learning_rate'], hyperparams['batch_size'], hyperparams['hidden_layers'], \
-            hyperparams['describe']
+            hyperparams['reverse'], hyperparams['describe'], hyperparams['load_data'], hyperparams['load_model']
 
 # Define a model
 def relu(x):
@@ -142,7 +152,7 @@ def data_setup(hops=(1,), load=True):
             X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes = load_training_data(folder)
             B1, B2 = B_matrices
         else:
-            B1, B2 = B_matrices
+            B1, B2, _ = B_matrices
             X, y = Xs[i], ys[i]
             save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, 'trajectory_data_' + str(hops[i]) + 'hop')
 
@@ -170,7 +180,7 @@ def data_setup(hops=(1,), load=True):
     n_nbrs = onp.array([len(nbrhoods_dict[n]) for n in last_nodes])
 
     # Bconds function
-    nbrhoods = np.array([list(sorted(G_undir[n])) + [-1] * (max_degree - len(G_undir[n])) for n in range(max(G_undir.nodes))])
+    nbrhoods = np.array([list(sorted(G_undir[n])) + [-1] * (max_degree - len(G_undir[n])) for n in range(max(G_undir.nodes) + 1)])
     nbrhoods = nbrhoods
 
     B1_jax = np.append(B1, np.zeros((1, B1.shape[1])), axis=0)
@@ -190,35 +200,41 @@ def train_model():
     """
     Trains a model to predict the next node in each input path (represented as a flow)
     """
-    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs = data_setup(hops=(1,2), load=True)
+    # Hyperparameters (from args)
+    epochs, learning_rate, batch_size, hidden_layers, reverse, describe, load_data, load_model = hyperparams()
+
+
+    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs = data_setup(hops=(1,2), load=load_data)
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
 
     last_nodes = inputs_1hop[1]
 
-    # Hyperparameters (from args)
-    epochs, learning_rate, batch_size, hidden_layers, describe = hyperparams()
+
 
     if describe == 1:
         desc = input("Describe this test: ")
 
     in_axes = tuple([None, None, None, None, 0, 0])
 
+
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size)
     hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
-    print([type(a) for a in inputs_1hop])
     hodge.model(hodge.weights, *shifts, *inputs_1hop)
+    if load_model:
+        hodge.weights = onp.load('models/model.npy', allow_pickle=True)
+        (train_loss, train_acc), (test_loss, test_acc) = hodge.test(inputs_1hop, y_1hop, train_mask, n_nbrs), \
+                                                         hodge.test(inputs_1hop, y_1hop, test_mask, n_nbrs)
+    else:
+        # Train
+        train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
 
-    print(min(last_nodes), nbrhoods.shape, inputs_1hop[-1].shape)
-    # Train
-    train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
-
-    try:
-        os.mkdir('models')
-    except:
-        pass
-    onp.save('models/model', hodge.weights)
+        try:
+            os.mkdir('models')
+        except:
+            pass
+        onp.save('models/model', hodge.weights)
 
     train_2hop, test_2hop = hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
                             hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
@@ -229,6 +245,14 @@ def train_model():
                                   hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
 
     print(train_2target, test_2target)
+
+    if reverse:
+        rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
+            onp.load('trajectory_data_1hop/rev_flows_in.npy'), onp.load('trajectory_data_1hop/rev_targets.npy'), \
+            onp.load('trajectory_data_2hop/rev_targets.npy'), onp.load('trajectory_data_1hop/rev_last_nodes.npy')
+        rev_n_nbrs = [len(neighborhood(G_undir, n)) for n in rev_last_nodes]
+        hodge.test([inputs_1hop[0], rev_last_nodes, rev_flows_in], rev_targets_1hop, test_mask, rev_n_nbrs)
+
 
 
     if describe == 1:

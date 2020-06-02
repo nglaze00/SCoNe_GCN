@@ -282,16 +282,16 @@ def generate_reversed_flows(flows_in, E, E_lookup, G_undir, last_nodes, targets_
             suffix.append(neighborhood(G_undir, suffix[-1])[choices_2hop[i]])
             paths[i] += suffix
     # reverse paths
-    D = targets_1hop.shape[-1]
+    D = targets_1hop.shape[1]
     rev_paths = [path[::-1] for path in paths]
     rev_suffixes = [rev_path[-2:] for rev_path in rev_paths]
     rev_last_nodes = np.array([p[-3] for p in rev_paths])
-    print(rev_paths, rev_suffixes, rev_last_nodes)
 
     # build reversed flows
     rev_flows_in = np.array([path_to_flow(path[:-2], E_lookup, len(E)) for path in rev_paths])
-    rev_targets_1hop = np.array([neighborhood_to_onehot(neighborhood(G_undir, rev_last_nodes[i]), rev_suffixes[i][0], D)
-                        for i in range(len(flows_in))])
+    rev_targets_1hop = np.array(
+        [neighborhood_to_onehot(neighborhood(G_undir, rev_last_nodes[i]), rev_suffixes[i][0], D)
+         for i in range(len(flows_in))])
     rev_targets_2hop = np.array([neighborhood_to_onehot(neighborhood(G_undir, rev_suffixes[i][0]), rev_suffixes[i][1], D)
                         for i in range(len(flows_in))])
 
@@ -369,6 +369,12 @@ def generate_training_data(n, m, hops=(1,)):
     np.random.shuffle(train_mask)
     test_mask = 1 - train_mask
 
+    rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
+        generate_reversed_flows(flows_ins[0], E, E_lookup, G_undir, last_nodes, targetss[0], targetss[1], paths=paths)
+    np.save('trajectory_data_1hop/rev_flows_in', rev_flows_in)
+    np.save('trajectory_data_1hop/rev_targets', rev_targets_1hop)
+    np.save('trajectory_data_2hop/rev_targets', rev_targets_2hop)
+    np.save('trajectory_data_1hop/rev_last_nodes', rev_last_nodes)
 
     return flows_ins, [B1, B2, None], targetss, train_mask, test_mask, G_undir, last_nodes
 
@@ -403,5 +409,6 @@ def load_training_data(folder):
 
     return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:3]], np.load(file_paths[3]), \
            np.load(file_paths[4]), np.load(file_paths[5]), G_undir, np.load(file_paths[7])
+
 
 
