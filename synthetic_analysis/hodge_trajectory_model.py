@@ -3,6 +3,7 @@ import jax.numpy as np
 from jax import grad, jit, vmap
 from jax.scipy.special import logsumexp
 from jax.experimental.optimizers import adam
+from treelib import Tree
 
 class Hodge_GCN():
     def __init__(self, epochs, step_size, batch_size, verbose=True):
@@ -17,6 +18,7 @@ class Hodge_GCN():
 
         self.trained = False
         self.model = None
+        self.model_single = None
         self.shifts = None
         self.weights = None
 
@@ -74,7 +76,7 @@ class Hodge_GCN():
 
         return onp.average(true_probs[mask==1] > random_probs[mask==1])
 
-    def multi_hop_accuracy(self, shifts, inputs, y, mask, nbrhoods, E_lookup, last_nodes, n_nbrs, hops):
+    def multi_hop_accuracy_binary(self, shifts, inputs, y, mask, nbrhoods, E_lookup, last_nodes, n_nbrs, hops):
         """
         Returns the accuracy of the model in making multi-hop predictions
         """
@@ -88,9 +90,6 @@ class Hodge_GCN():
                 preds[i, n_nbrs[i]:] = -100
 
             pred_choice = onp.argmax(preds, axis=1)
-
-            for i in range(len(pred_choice)):
-                assert pred_choice[i][0] < n_nbrs[i], 'aa'
 
             if h == hops - 1:
                 return np.average(pred_choice[mask==1] == onp.argmax(y[mask == 1], axis=1))
@@ -121,9 +120,63 @@ class Hodge_GCN():
             cur_inputs[-1][next_edge_rows_pos, next_edge_cols_pos] = 1
             cur_inputs[-1][next_edge_rows_neg, next_edge_cols_neg] = -1
 
-            # index last node's neighborhood with pred_choice to get what node is next
-            # add (last_node, new_node) to flow
 
+    def multi_hop_accuracy_dist(self, shifts, inputs, target_nodes, mask, nbrhoods, E_lookup, last_nodes, n_nbrs, hops):
+        """
+        Returns accuracy of the model in making multi-hop predictions, using distributions at each intermediate hop
+            instead of binary choices
+
+            todo make target nodes array, test
+        """
+        nbrhoods_unpadded = [nbrhood[onp.where(nbrhood != -1)] for nbrhood in nbrhoods]
+        path_trees = [Tree() for _ in range(inputs[-1].shape[0])]
+
+        # initialize leaves
+        for i in range(len(path_trees)):
+            path_trees[i].create_node(tag=last_nodes[i], identifier=str(last_nodes[i]), data=[inputs[-1][i], 1])
+
+        # build trees
+        for h in range(hops):
+            for i in range(len(path_trees)):
+                for leaf in path_trees[i].leaves():
+                    flow = leaf.data
+
+                    probs = onp.array(self.model_single(self.weights, *shifts, inputs[0], leaf.tag, leaf.data))
+
+                    nbrs = nbrhoods_unpadded[leaf.tag]
+                    for j in range(nbrs):
+                        new_edge = (leaf.tag, nbrs[j])
+                        new_flow = onp.array(flow)
+                        if new_edge[0] < new_edge[1]:
+                            new_flow[E_lookup[new_edge]] = 1
+                        else:
+                            new_flow[E_lookup[new_edge[::-1]]] = -1
+
+                        prob_so_far = leaf.data[1]
+                        path_trees[i].create_node(tag=nbrs[i], identifier=leaf.identifier + str(nbrs[j]),
+                                                  data=[new_flow, prob_so_far * probs[i]])
+
+
+        # find prob that target node is reached for each flow
+        target_probs = onp.zeros(len(path_trees))
+        for i in range(len(path_trees)):
+            target_prob = 0
+            valid_paths = 0
+            for leaf in path_trees[i].leaves():
+                if leaf.tag == target_nodes[i]:
+                    valid_paths += 1
+                    target_prob += leaf.data[1]
+            target_prob /= valid_paths
+            target_probs[i] = target_prob
+
+        return onp.average(target_probs)
+
+
+
+        # get all paths from last_node to target_node (using nx.all_simple_paths, cutoff 2)
+        # compute + memoize the target vector at each node in each path; build a dict of probability that path is followed
+        #   as each path is stepped through
+        # return average of that dict's values
 
     def generate_weights(self, in_channels, hidden_layers, out_channels):
         """
@@ -158,6 +211,7 @@ class Hodge_GCN():
 
         # set up model for batching
         self.model = vmap(model, in_axes=in_axes)
+        self.model_single = model
 
         # generate weights
 
