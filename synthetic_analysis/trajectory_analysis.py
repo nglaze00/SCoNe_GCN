@@ -20,7 +20,8 @@ With train / test splits:
         0.7775 0.73
 
         4) (other diff data) train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545
-        2hop: 0.14874999 0.12
+        2hop binary: 0.14874999 0.12
+        2hop dist: 0.229 0.815
         2-target: 0.75375 0.745
         reversed Test loss: 1.631899, Test acc: 0.480
 
@@ -43,7 +44,7 @@ With train / test splits:
 #   try other accuracy measurements
 #   save models after testing
 #   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
-#   ablation: remove L1_upper
+#   ablations: remove L1_upper, nonlinearities, etc
 
 ## Multi hop:
     # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
@@ -103,14 +104,14 @@ def hyperparams():
 def relu(x):
     return np.maximum(x, 0)
 
-def hodge_parallel_variable(weights, S_lower, S_upper, Bcond_func, last_node, flows):
+def hodge_parallel_variable(weights, S_lower, S_upper, Bcond_func, last_node, flow):
     """
     Hodge parallel model with variable number of layers
     """
     n_layers = (len(weights) - 1) / 3
     assert n_layers % 1 == 0, 'wrong number of weights'
 
-    cur_out = flows
+    cur_out = flow
     for i in range(int(n_layers)):
         cur_out = cur_out @ weights[i * 3] \
                   + S_lower @ cur_out @ weights[i*3 + 1] \
@@ -140,21 +141,26 @@ def data_setup(hops=(1,), load=True):
     Imports and sets up flow, target, and shift matrices for model training. Supports generating data for multiple hops
         at once
     """
-    inputs_all, y_all = [], []
+    inputs_all, y_all, target_nodes_all = [], [], []
     if not load:
         # Generate data
-        Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes = generate_training_data(400, 1000, hops=hops)
-
+        Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes, suffixes = generate_training_data(400, 1000, hops=hops)
+        target_nodes_all = [[] * len(suffixes[0])]
+        for i in range(len(suffixes[0])):  # each hop
+            for j in range(len(suffixes)): # each suffix
+                target_nodes_all[i].append(suffixes[j][i])
     for i in range(len(hops)):
         if load:
             # Load data
             folder = 'trajectory_data_' + str(hops[i]) + 'hop'
-            X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes = load_training_data(folder)
+            X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_training_data(folder)
             B1, B2 = B_matrices
+            target_nodes_all.append(target_nodes)
         else:
             B1, B2, _ = B_matrices
             X, y = Xs[i], ys[i]
-            save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, 'trajectory_data_' + str(hops[i]) + 'hop')
+            save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, target_nodes_all[i], 'trajectory_data_' + str(hops[i]) + 'hop')
+
 
         inputs_all.append([None, np.array(last_nodes), X])
         y_all.append(y)
@@ -163,6 +169,7 @@ def data_setup(hops=(1,), load=True):
         L1_lower = B1.T @ B1
         L1_upper = B2 @ B2.T
         shifts = [L1_lower, L1_upper]
+
 
 
     # Build E_lookup for multi-hop training
@@ -194,7 +201,7 @@ def data_setup(hops=(1,), load=True):
 
     # assert np.equal(Bcondss[0][0], Bconds_func(last_nodes[0])).all()
 
-    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs
+    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all
 
 def train_model():
     """
@@ -204,7 +211,7 @@ def train_model():
     epochs, learning_rate, batch_size, hidden_layers, reverse, describe, load_data, load_model = hyperparams()
 
 
-    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs = data_setup(hops=(1,2), load=load_data)
+    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all = data_setup(hops=(1,2), load=load_data)
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
 
     last_nodes = inputs_1hop[1]
@@ -217,11 +224,11 @@ def train_model():
     in_axes = tuple([None, None, None, None, 0, 0])
 
 
+
     # Create model
     hodge = Hodge_GCN(epochs, learning_rate, batch_size)
     hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
-    hodge.model(hodge.weights, *shifts, *inputs_1hop)
     if load_model:
         hodge.weights = onp.load('models/model.npy', allow_pickle=True)
         (train_loss, train_acc), (test_loss, test_acc) = hodge.test(inputs_1hop, y_1hop, train_mask, n_nbrs), \
@@ -236,10 +243,12 @@ def train_model():
             pass
         onp.save('models/model', hodge.weights)
 
-    train_2hop, test_2hop = hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
-                            hodge.multi_hop_accuracy(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
-                                                     last_nodes, n_nbrs, 2)
+    print(hodge.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods, E_lookup, last_nodes, n_nbrs, 2))
 
+    raise Exception
+    train_2hop, test_2hop = hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
+                            hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
+                                                            last_nodes, n_nbrs, 2)
     print(train_2hop, test_2hop)
     train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
                                   hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
