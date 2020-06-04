@@ -19,9 +19,9 @@ With train / test splits:
         0.14 0.185
         0.7775 0.73
 
-        4) (other diff data) train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545
+        4) (other diff data) train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545 epochs = 1000?
         2hop binary: 0.14874999 0.12
-        2hop dist: 0.229 0.815
+        2hop dist: 0.229 0.185
         2-target: 0.75375 0.745
         reversed Test loss: 1.631899, Test acc: 0.480
 
@@ -45,7 +45,7 @@ With train / test splits:
 #   save models after testing
 #   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
 #   ablations: remove L1_upper, nonlinearities, etc
-
+#   comparisons: Markov process, flows in different directions
 ## Multi hop:
     # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
 """
