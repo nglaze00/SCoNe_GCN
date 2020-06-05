@@ -59,11 +59,13 @@ import numpy as onp
 # from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
 # from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 try:
-    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows
+    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows, flow_to_path
     from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
+    from synthetic_analysis.markov_model import Markov_Model
 except Exception:
-    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows
+    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows, flow_to_path
     from hodge_trajectory_model import Hodge_GCN
+    from markov_model import Markov_Model
 
 import sys
 
@@ -83,7 +85,10 @@ def hyperparams():
                    'describe': 0,
                    'reverse': 0,
                    'load_data': 1,
-                   'load_model': 0}
+                   'load_model': 0,
+                   'markov': 0,
+                   'model_name': 'model',
+                   'regional': 0}
 
     for i in range(len(args) - 1):
         if args[i][0] == '-':
@@ -93,12 +98,12 @@ def hyperparams():
                 hyperparams['hidden_layers'] = []
                 for j in range(0, len(nums), 2):
                     hyperparams['hidden_layers'] += [(nums[j], nums[j + 1])]
-
+            if args[i][1:] == 'model_name':
+                hyperparams[args[i][1:]] = str(args[i+1])
             else:
                 hyperparams[args[i][1:]] = float(args[i+1])
     print(hyperparams)
-    return hyperparams['epochs'], hyperparams['learning_rate'], hyperparams['batch_size'], hyperparams['hidden_layers'], \
-            hyperparams['reverse'], hyperparams['describe'], hyperparams['load_data'], hyperparams['load_model']
+    return hyperparams
 
 # Define a model
 def relu(x):
@@ -152,7 +157,7 @@ def data_setup(hops=(1,), load=True):
     for i in range(len(hops)):
         if load:
             # Load data
-            folder = 'trajectory_data_' + str(hops[i]) + 'hop'
+            folder = 'trajectory_data_' + str(hops[i]) + 'hop_working'
             X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_training_data(folder)
             B1, B2 = B_matrices
             target_nodes_all.append(target_nodes)
@@ -199,63 +204,154 @@ def data_setup(hops=(1,), load=True):
     for i in range(len(inputs_all)):
         inputs_all[i][0] = Bconds_func
 
-    # assert np.equal(Bcondss[0][0], Bconds_func(last_nodes[0])).all()
+    prefixes = [flow_to_path(inputs_all[0][-1][i], E, last_nodes[i]) for i in range(len(last_nodes))]
 
-    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all
+    return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all, prefixes
 
 def train_model():
     """
     Trains a model to predict the next node in each input path (represented as a flow)
     """
     # Hyperparameters (from args)
-    epochs, learning_rate, batch_size, hidden_layers, reverse, describe, load_data, load_model = hyperparams()
+    hyp = hyperparams()
 
 
-    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all = data_setup(hops=(1,2), load=load_data)
+    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all, prefixes = data_setup(hops=(1,2), load=hyp['load_data'])
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
 
     last_nodes = inputs_1hop[1]
 
 
 
-    if describe == 1:
+    if hyp['describe'] == 1:
         desc = input("Describe this test: ")
 
     in_axes = tuple([None, None, None, None, 0, 0])
 
+    if hyp['markov'] == 1:
+        order = 2
+        markov = Markov_Model(order)
+        paths = onp.array([prefix + [target1, target2] for prefix, target1, target2 in zip(prefixes, target_nodes_all[0], target_nodes_all[1])], dtype='object')
 
+        paths_train = paths[train_mask == 1]
+        prefixes_train, target_nodes_1hop_train, target_nodes_2hop_train = onp.array(prefixes)[train_mask == 1], \
+                                                                           target_nodes_all[0][train_mask == 1], \
+                                                                           target_nodes_all[1][train_mask == 1]
+        prefixes_test, target_nodes_1hop_test, target_nodes_2hop_test = onp.array(prefixes, dtype='object')[test_mask == 1], \
+                                                    target_nodes_all[0][test_mask == 1], \
+                                                    target_nodes_all[1][test_mask == 1]
+
+        # forward paths
+        markov.train(G_undir, paths_train)
+        print("train accs")
+        print(markov.test(prefixes_train, target_nodes_1hop_train, 1))
+        print(markov.test(prefixes_train, target_nodes_2hop_train, 2))
+        print("test accs")
+        print(markov.test(prefixes_test, target_nodes_1hop_test, 1))
+        print(markov.test(prefixes_test, target_nodes_2hop_test, 2))
+
+        # reversed test paths
+        rev_paths = [path[::-1] for path in paths]
+        rev_prefixes = onp.array([p[:-2] for p in rev_paths], dtype='object')
+        rev_prefixes_test = rev_prefixes[test_mask == 1]
+        rev_target_nodes_1hop, rev_target_nodes_2hop = onp.array([p[-2] for p in rev_paths], dtype='object'), \
+                                                       onp.array([p[-1] for p in rev_paths], dtype='object')
+        rev_target_nodes_1hop_test = rev_target_nodes_1hop[test_mask == 1]
+        rev_target_nodes_2hop_test = rev_target_nodes_2hop[test_mask == 1]
+        print("Reversed test accs")
+        print(markov.test(rev_prefixes_test, rev_target_nodes_1hop_test, 1))
+        print(markov.test(rev_prefixes_test, rev_target_nodes_2hop_test, 2))
+
+        # half forward, half backward
+        fwd_mask = onp.array([True] * int(len(paths) / 2) + [False] * int(len(paths) / 2))
+        onp.random.shuffle(fwd_mask)
+        bkwd_mask = ~fwd_mask
+
+        # mixed dataset
+        mixed_paths = onp.concatenate((onp.array(paths)[fwd_mask == 1], onp.array(rev_paths)[bkwd_mask == 1]))
+        mixed_prefixes = onp.concatenate((onp.array(prefixes)[fwd_mask==1], rev_prefixes[bkwd_mask==1]))
+        mixed_target_nodes_1hop = onp.concatenate((target_nodes_all[0][fwd_mask == 1], rev_target_nodes_1hop[bkwd_mask == 1]))
+        mixed_target_nodes_2hop = onp.concatenate((target_nodes_all[1][fwd_mask == 1], rev_target_nodes_2hop[bkwd_mask == 1]))
+
+        # train / test splits
+        mixed_paths_train = mixed_paths[train_mask == 1]
+        mixed_prefixes_train, mixed_prefixes_test = mixed_prefixes[train_mask == 1], mixed_prefixes[test_mask == 1]
+        mixed_target_nodes_1hop_train, mixed_target_nodes_1hop_test = mixed_target_nodes_1hop[train_mask == 1], \
+                                                                      mixed_target_nodes_1hop[test_mask == 1]
+        mixed_target_nodes_2hop_train, mixed_target_nodes_2hop_test = mixed_target_nodes_2hop[train_mask == 1], \
+                                                                      mixed_target_nodes_2hop[test_mask == 1]
+
+        markov.train(G_undir, mixed_paths_train)
+
+        print("Mixed train accs")
+        print(markov.test(mixed_prefixes_train, mixed_target_nodes_1hop_train, 1))
+        print(markov.test(mixed_prefixes_train, mixed_target_nodes_2hop_train, 2))
+        print("Mixed test accs")
+        print(markov.test(mixed_prefixes_test, mixed_target_nodes_1hop_test, 1))
+        print(markov.test(mixed_prefixes_test, mixed_target_nodes_2hop_test, 2))
+
+
+        # regional splits
+        paths_upper = [paths[i] for i in range(len(paths)) if i % 3 == 1]
+        prefixes_upper = [p[:-2] for p in paths_upper]
+        targets_1hop_upper = [target_nodes_all[0][i] for i in range(len(paths)) if i % 3 == 1]
+        targets_2hop_upper = [target_nodes_all[1][i] for i in range(len(paths)) if i % 3 == 1]
+
+        paths_lower = [paths[i] for i in range(len(paths)) if i % 3 == 2]
+        prefixes_lower = [p[:-2] for p in paths_lower]
+        targets_1hop_lower = [target_nodes_all[0][i] for i in range(len(paths)) if i % 3 == 2]
+        targets_2hop_lower = [target_nodes_all[1][i] for i in range(len(paths)) if i % 3 == 2]
+
+        markov.train(G_undir, paths_upper)
+        print("Upper region train accs")
+        print(markov.test(prefixes_upper, targets_1hop_upper, 1))
+        print(markov.test(prefixes_upper, targets_2hop_upper, 2))
+        print("Lower region accs")
+        print(markov.test(prefixes_lower, targets_1hop_lower, 1))
+        print(markov.test(prefixes_lower, targets_2hop_lower, 2))
+        raise Exception
 
     # Create model
-    hodge = Hodge_GCN(epochs, learning_rate, batch_size)
-    hodge.setup(hodge_parallel_variable, hidden_layers, shifts, inputs_1hop, y_1hop, in_axes, train_mask)
+    hodge = Hodge_GCN(hyp['epochs'], hyp['learning_rate'], hyp['batch_size'])
+    hodge.setup(hodge_parallel_variable, hyp['hidden_layers'], shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
-    if load_model:
+    if hyp['load_model']:
         hodge.weights = onp.load('models/model.npy', allow_pickle=True)
         (train_loss, train_acc), (test_loss, test_acc) = hodge.test(inputs_1hop, y_1hop, train_mask, n_nbrs), \
                                                          hodge.test(inputs_1hop, y_1hop, test_mask, n_nbrs)
+
     else:
-        # Train
-        train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
+        # Train either on upper region only or all data
+        if hyp['regional']:
+            mask_upper = np.array([1 if i % 3 == 1 else 0 for i in range(len(y_1hop))])
+            mask_lower = np.array([1 if i % 3 == 2 else 0 for i in range(len(y_1hop))])
+            print('training on upper region paths')
+            train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, mask_upper, mask_lower, n_nbrs)
+
+            raise Exception
+
+        else:
+            train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
 
         try:
             os.mkdir('models')
         except:
             pass
-        onp.save('models/model', hodge.weights)
+        onp.save('models/' + hyp['model_name'], hodge.weights)
 
-    print(hodge.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods, E_lookup, last_nodes, n_nbrs, 2))
+    print('Multi hop accs:', hodge.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods, E_lookup, last_nodes, prefixes, 2))
 
-    raise Exception
-    train_2hop, test_2hop = hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
-                            hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
-                                                            last_nodes, n_nbrs, 2)
-    print(train_2hop, test_2hop)
+
+    # train_2hop, test_2hop = hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
+    #                         hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
+    #                                                         last_nodes, n_nbrs, 2)
+    # print(train_2hop, test_2hop)
     train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
                                   hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
 
-    print(train_2target, test_2target)
+    print('2-target accs:', train_2target, test_2target)
 
-    if reverse:
+    if hyp['reverse']:
         rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
             onp.load('trajectory_data_1hop/rev_flows_in.npy'), onp.load('trajectory_data_1hop/rev_targets.npy'), \
             onp.load('trajectory_data_2hop/rev_targets.npy'), onp.load('trajectory_data_1hop/rev_last_nodes.npy')
@@ -264,7 +360,8 @@ def train_model():
 
 
 
-    if describe == 1:
+
+    if hyp['describe'] == 1:
         print(desc)
 
 if __name__ == '__main__':

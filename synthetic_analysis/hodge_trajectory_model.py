@@ -121,12 +121,10 @@ class Hodge_GCN():
             cur_inputs[-1][next_edge_rows_neg, next_edge_cols_neg] = -1
 
 
-    def multi_hop_accuracy_dist(self, shifts, inputs, target_nodes, masks, nbrhoods, E_lookup, last_nodes, n_nbrs, hops):
+    def multi_hop_accuracy_dist(self, shifts, inputs, target_nodes, masks, nbrhoods, E_lookup, last_nodes, prefixes, hops):
         """
         Returns accuracy of the model in making multi-hop predictions, using distributions at each intermediate hop
             instead of binary choices
-
-            todo make target nodes array, test
         """
         nbrhoods_unpadded = [nbrhood[onp.where(nbrhood != -1)] for nbrhood in nbrhoods]
         path_trees = [Tree() for _ in range(inputs[-1].shape[0])]
@@ -142,15 +140,20 @@ class Hodge_GCN():
 
                     probs = onp.array(onp.exp(self.model_single(self.weights, *shifts, inputs[0], leaf.tag, leaf.data[0])))
 
+
                     nbrs = onp.array(nbrhoods_unpadded[leaf.tag])
                     for j in range(len(nbrs)):
                         new_edge = (int(leaf.tag), nbrs[j])
                         new_flow = onp.array(flow)
                         if new_edge[0] < new_edge[1]:
-                            new_flow[E_lookup[new_edge]] = 1
-                        else:
+                            flow_val = 1
 
-                            new_flow[E_lookup[new_edge[::-1]]] = -1
+                        else:
+                            flow_val = -1
+                        new_flow[E_lookup[tuple(sorted(new_edge))]] = flow_val
+
+
+
 
                         prob_so_far = leaf.data[1]
                         path_trees[i].create_node(tag=nbrs[j], identifier=leaf.identifier + str(nbrs[j]),

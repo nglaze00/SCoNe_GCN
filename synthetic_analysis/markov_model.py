@@ -1,15 +1,41 @@
 """
 Code for using a Markov model for path prediction
 
-train accs
-0.70625
-0.5125
-test accs
-0.605
-0.39
-Reversed test accs
-0.28
-0.06
+1st-order: (handles direction poorly
+    train accs
+        0.64625
+        0.43375
+    test accs
+        0.585
+        0.355
+    Reversed test accs
+        0.035
+        0.0
+    Mixed train accs
+        0.38375
+        0.14375
+    Mixed test accs
+        0.355
+        0.13
+
+2nd-order: (handles direction well)
+    train accs
+        0.70125
+        0.52
+    test accs
+        0.595
+        0.39
+    Reversed test accs
+        0.235
+        0.05
+    Mixed train accs
+        0.6875
+        0.39
+    Mixed test accs
+        0.65
+        0.385
+
+
 
 
 """
@@ -79,20 +105,23 @@ class Markov_Model():
                 others.append(nbr)
 
         if len(others) > 0:
-            return np.random.choice(others + [best_nbr])
+            return np.random.choice(others + [best_nbr]), True
         else:
-            return best_nbr
+            return best_nbr, False
 
     def test(self, prefixes, target_nodes, hops):
         """
         Returns the model's accuracy over the given prefixes and targets
         """
         cur_prefixes = np.array([list(prefix) for prefix in prefixes], dtype='object')
+        n_rand_choices = 0
         for h in range(hops):
             for i in range(len(prefixes)):
                 # print(i)
                 if len(prefixes[i]) >= self.order:
-                    cur_prefixes[i].append(self.predict(cur_prefixes[i][-self.order:]))
+                    prediction, was_random = self.predict(cur_prefixes[i][-self.order:])
+                    n_rand_choices += int(was_random)
+                    cur_prefixes[i].append(prediction)
 
 
         # print([p[-2:] for p in cur_prefixes])

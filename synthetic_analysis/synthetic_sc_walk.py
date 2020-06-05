@@ -413,4 +413,3 @@ def load_training_data(folder):
            np.load(file_paths[4]), np.load(file_paths[5]), G_undir, np.load(file_paths[7]), np.load(file_paths[8])
 
 
-
