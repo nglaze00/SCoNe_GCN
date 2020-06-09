@@ -241,7 +241,7 @@ class Hodge_GCN():
         X = inputs[-1]
         N = X.shape[0]
         n_train_samples = sum(train_mask)
-        n_test_samples = N - n_train_samples
+        n_test_samples = sum(test_mask)
         n_batches = n_train_samples // self.batch_size
 
         batch_mask = ''

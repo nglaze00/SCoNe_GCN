@@ -1,7 +1,7 @@
 """
 Code for using a Markov model for path prediction
 
-1st-order: (handles direction poorly
+1st-order: (handles direction poorly)
     train accs
         0.64625
         0.43375
@@ -17,6 +17,13 @@ Code for using a Markov model for path prediction
     Mixed test accs
         0.355
         0.13
+    Upper regionsounds  accs
+        0.648
+        0.444
+    Lower region accs
+        0.126
+        0.036
+
 
 2nd-order: (handles direction well)
     train accs
@@ -34,6 +41,14 @@ Code for using a Markov model for path prediction
     Mixed test accs
         0.65
         0.385
+    Upper region accs
+        0.624
+        0.444
+    Lower region accs
+        0.165
+        0.015
+
+
 
 
 

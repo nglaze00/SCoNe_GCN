@@ -1,42 +1,72 @@
 """
 Results:
 
-With train / test splits:
-    -Defaults: [(3,8),(3,8)], epochs = 300, learning rate = 0.01, batch size = 100
-        train loss: 1.150081 -- train acc 0.585 -- test loss 1.230376 -- test acc 0.530
-        2-hop: 0.13875
-        2-target: 0.70125
+-hidden_layers = [(3,16),(3,16),(3,16)], learning rate = 0.001, epochs = 1000
+    standard train/test splits:
+        normal shifts:
+            activation = relu
+                train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545
+                2hop binary: 0.14874999 0.12
+                2hop dist: 0.229 0.185
+                2-target: 0.75375 0.745
+                reversed test loss: 1.631899, Test acc: 0.480
+            activation = tanh
+                train loss: 1.067673 -- train acc 0.607 -- test loss 1.240596 -- test acc 0.580
+                2hop dist: 0.183 0.163
+                2-target: 0.71625 0.73
+                reversed test loss: 1.013826, Test acc: 0.580
+            activation = tanh, epochs = 2000
+                todo
+            activation = sigmoid, epochs = 2000
+                todo
 
-    -hidden_layers = [(3,16),(3,16),(3,16)]learning rate = 0.001
-        1) epochs = 500: train loss: 0.860433 -- train acc 0.669 -- test loss 1.238347 -- test acc 0.535
-        training 2hop: 0.1875
-        training 2-target: 0.775
-        2) epochs = 1000: train loss: 0.660450 -- train acc 0.748 -- test loss 1.326550 -- test acc 0.610
-        train/test 2-hop: 0.21374999 0.145
-        train/test 2-target: 0.7875 0.75
-
-        3) (diff data) train loss: 0.688547 -- train acc 0.725 -- test loss 1.850561 -- test acc 0.520
-        0.14 0.185
-        0.7775 0.73
-
-        4) (other diff data) train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545 epochs = 1000?
-        2hop binary: 0.14874999 0.12
-        2hop dist: 0.229 0.185
-        2-target: 0.75375 0.745
-        reversed Test loss: 1.631899, Test acc: 0.480
+            todo run whichever is better
 
 
 
-    -hidden_layers = [(3,32),(3,32)], epochs = 500, learning rate = 0.001
+        shifts = L_lower, L_lower:
+            activation = relu
+                train loss: 1.157995 -- train acc 0.556 -- test loss 1.311329 -- test acc 0.495
+                2hop dist: 0.179 0.158
+                2-target: 0.72625 0.745
+                reversed test loss: 1.672432, Test acc: 0.325
 
-    -hidden_layers = [(3,32),(3,32),(3,16)], epochs = 2000
-        train loss: 0.611045 -- train acc 0.745 -- test loss 2.506877 -- test acc 0.505
-        0.11625 0.105
-        0.7975 0.725
+            activation = tanh:
+                train loss: 1.366938 -- train acc 0.517 -- test loss 1.336403 -- test acc 0.515
+                2hop dist: 0.125 0.127
+                2-target: 0.68375 0.75
+                reversed test loss: 1.166959, Test acc: 0.540
+            activation = tanh, epochs = 1500:
+                train loss: 1.285150 -- train acc 0.522 -- test loss 1.258232 -- test acc 0.535
+                2hop dist: 0.108 0.118S
+                2-target: 0.7075 0.75
+                reversed test loss: 1.219265, Test acc: 0.520
+            activation = tanh, epochs = 2000:
+                train loss: 1.231843 -- train acc 0.529 -- test loss 1.237455 -- test acc 0.535
+                2-hop dist: 0.130 0.139
+                2-target accs: 0.71875 0.695
+                reversed test loss: 1.127183, Test acc: 0.520
 
 
-    -hidden_layers = [(3,16),(3,16),(3,16)], epochs = 200; L_upper = L_lower
-        gets to loss: 1.207, acc: 0.544, then NaNs
+
+
+
+
+    train on upper paths, test on lower paths:
+        normal shifts:
+            train loss: 0.883628 -- train acc 0.676 -- test loss 1.685690 -- test acc 0.517
+            2-hop dist: 0.220, 0.161
+            2-target: 0.721 0.679
+
+        shifts = L_lower, L_lower:
+            train loss: 1.402770 -- train acc 0.523 -- test loss 1.964938 -- test acc 0.255
+            2-hop dist: 0.125, 0.05
+            2-target: 0.667 0.529
+
+
+
+
+
 
 
 # todo
@@ -78,7 +108,7 @@ def hyperparams():
     For hidden_layers, input [(3, 8), (3, 8)] as 3_8_3_8
     """
     args = sys.argv
-    hyperparams = {'epochs': 100,
+    hyperparams = {'epochs': 1000,
                    'learning_rate': 0.001,
                    'batch_size': 100,
                    'hidden_layers': [(3, 8), (3, 8)],
@@ -98,7 +128,7 @@ def hyperparams():
                 hyperparams['hidden_layers'] = []
                 for j in range(0, len(nums), 2):
                     hyperparams['hidden_layers'] += [(nums[j], nums[j + 1])]
-            if args[i][1:] == 'model_name':
+            elif args[i][1:] == 'model_name':
                 hyperparams[args[i][1:]] = str(args[i+1])
             else:
                 hyperparams[args[i][1:]] = float(args[i+1])
@@ -108,6 +138,12 @@ def hyperparams():
 # Define a model
 def relu(x):
     return np.maximum(x, 0)
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+def tanh(x):
+    return np.tanh(x)
 
 def hodge_parallel_variable(weights, S_lower, S_upper, Bcond_func, last_node, flow):
     """
@@ -291,7 +327,7 @@ def train_model():
         print(markov.test(mixed_prefixes_test, mixed_target_nodes_2hop_test, 2))
 
 
-        # regional splits
+        # train on upper, test on lower
         paths_upper = [paths[i] for i in range(len(paths)) if i % 3 == 1]
         prefixes_upper = [p[:-2] for p in paths_upper]
         targets_1hop_upper = [target_nodes_all[0][i] for i in range(len(paths)) if i % 3 == 1]
@@ -316,22 +352,26 @@ def train_model():
     hodge.setup(hodge_parallel_variable, hyp['hidden_layers'], shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
     if hyp['load_model']:
-        hodge.weights = onp.load('models/model.npy', allow_pickle=True)
+        hodge.weights = onp.load('models/' + hyp['model_name'] + '.npy', allow_pickle=True)
+        if hyp['epochs'] != 1000:
+            # train model for additional epochs
+            hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
+            try:
+                os.mkdir('models')
+            except:
+                pass
+            onp.save('models/' + hyp['model_name'], hodge.weights)
+
         (train_loss, train_acc), (test_loss, test_acc) = hodge.test(inputs_1hop, y_1hop, train_mask, n_nbrs), \
                                                          hodge.test(inputs_1hop, y_1hop, test_mask, n_nbrs)
 
     else:
         # Train either on upper region only or all data
         if hyp['regional']:
-            mask_upper = np.array([1 if i % 3 == 1 else 0 for i in range(len(y_1hop))])
-            mask_lower = np.array([1 if i % 3 == 2 else 0 for i in range(len(y_1hop))])
-            print('training on upper region paths')
-            train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, mask_upper, mask_lower, n_nbrs)
+            train_mask = np.array([1 if i % 3 == 1 else 0 for i in range(len(y_1hop))])
+            test_mask = np.array([1 if i % 3 == 2 else 0 for i in range(len(y_1hop))])
 
-            raise Exception
-
-        else:
-            train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
+        train_loss, train_acc, test_loss, test_acc = hodge.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
 
         try:
             os.mkdir('models')
@@ -353,8 +393,8 @@ def train_model():
 
     if hyp['reverse']:
         rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
-            onp.load('trajectory_data_1hop/rev_flows_in.npy'), onp.load('trajectory_data_1hop/rev_targets.npy'), \
-            onp.load('trajectory_data_2hop/rev_targets.npy'), onp.load('trajectory_data_1hop/rev_last_nodes.npy')
+            onp.load('trajectory_data_1hop_working/rev_flows_in.npy'), onp.load('trajectory_data_1hop_working/rev_targets.npy'), \
+            onp.load('trajectory_data_2hop_working/rev_targets.npy'), onp.load('trajectory_data_1hop_working/rev_last_nodes.npy')
         rev_n_nbrs = [len(neighborhood(G_undir, n)) for n in rev_last_nodes]
         hodge.test([inputs_1hop[0], rev_last_nodes, rev_flows_in], rev_targets_1hop, test_mask, rev_n_nbrs)
 
