@@ -17,7 +17,7 @@ Code for using a Markov model for path prediction
     Mixed test accs
         0.355
         0.13
-    Upper regionsounds  accs
+    Upper region accs
         0.648
         0.444
     Lower region accs
