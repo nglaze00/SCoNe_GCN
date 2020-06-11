@@ -5,16 +5,29 @@ Results:
     standard train/test splits:
         normal shifts:
             activation = relu
-                train loss: 0.831934 -- train acc 0.675 -- test loss 1.290683 -- test acc 0.545
+                train loss: 0.828606 -- train acc 0.691 -- test loss 1.304349 -- test acc 0.545
                 2hop binary: 0.14874999 0.12
-                2hop dist: 0.229 0.185
-                2-target: 0.75375 0.745
-                reversed test loss: 1.631899, Test acc: 0.480
+                2hop dist: 0.233 0.182
+                2-target: 0.79375 0.75
+                reversed test loss: 1.516947, Test acc: 0.475
+                -Result: flipping orientations of random edges severely worsens performance
+                    Train loss: 2.352922, Train acc: 0.394
+                    Test loss: 2.375667, Test acc: 0.425
+
+
         --> activation = tanh
                 train loss: 1.067673 -- train acc 0.607 -- test loss 1.240596 -- test acc 0.580
                 2hop dist: 0.183 0.163
                 2-target: 0.71625 0.73
                 reversed test loss: 1.013826, Test acc: 0.580
+                -Result: flipping orientations of random edges does not affect performance
+
+            activation = tanh, epochs = 2000
+                train loss: 1.012932 -- train acc 0.624 -- test loss 1.199164 -- test acc 0.580
+                2hop dist: 0.180 0.171
+                2-target: 0.72375 0.74
+                reversed test loss: 1.072159, Test acc: 0.530
+
             activation = sigmoid, epochs = 1000
                 train loss: 1.226788 -- train acc 0.577 -- test loss 1.225680 -- test acc 0.520
                 Multi hop accs: [0.174, 0.167]
@@ -55,15 +68,17 @@ Results:
             2-hop dist: 0.220, 0.161
             2-target: 0.721 0.679
 
+        activation = tanh:
+            train loss: 1.403847 -- train acc 0.492 -- test loss 1.324031 -- test acc 0.565
+            Multi hop accs: [0.083, 0.105]
+            2-target accs: 0.640 0.703
+
         shifts = L_lower, L_lower:
             train loss: 1.402770 -- train acc 0.523 -- test loss 1.964938 -- test acc 0.255
             2-hop dist: 0.125, 0.05
             2-target: 0.667 0.529
 
-        activation = tanh:
-            train loss: 1.403847 -- train acc 0.492 -- test loss 1.324031 -- test acc 0.565
-            Multi hop accs: [0.083, 0.105]
-            2-target accs: 0.640 0.703
+
 
 
 
@@ -72,20 +87,16 @@ Results:
 
 
 # todo
-#   predict distributions, multihop (todo use distributions, not binary), etc (stuff from paper)
-#   try other accuracy measurements
-#   save models after testing
-#   Experiment: reversing flows, then testing w/ ours and GRETEL (or boomerang shaped flows)
-#   ablations: remove L1_upper, nonlinearities, etc
-#   comparisons: Markov process, flows in different directions
-## Multi hop:
-    # todo test 3-hop; try only predicting over last ?? nodes of prefix each time
+# 3-hop?
+# boomerang flows?
 
-B1 @ F
-F L1_lower F (flip each row and column in F)
-F L1_upper F
-flow @ F
-use same weights; should be the same only for tanh
+
+# orientation flip:
+    B1 @ F
+    F L1_lower F (flip each row and column in F)
+    F L1_upper F
+    flow @ F
+    use same weights; should be the same only for tanh, not for relu
 
 
 """
@@ -170,7 +181,7 @@ def hodge_parallel_variable(weights, S_lower, S_upper, Bcond_func, last_node, fl
                   + S_lower @ cur_out @ weights[i*3 + 1] \
                   + S_upper @ cur_out @ weights[i*3 + 2]
 
-        cur_out = tanh(cur_out)
+        cur_out = relu(cur_out)
 
     logits = Bcond_func(last_node) @ cur_out @ weights[-1]
     return logits - logsumexp(logits)
@@ -201,10 +212,10 @@ def data_setup(hops=(1,), load=True):
 
     if HYPERPARAMS['flip_edges']:
         # Flip orientation of a random subset of edges
+        onp.random.seed(1)
         _, _, _, _, _, G_undir, _, _ = load_training_data('trajectory_data_1hop_working')
         flips = onp.random.choice([1, -1], size=len(G_undir.edges), replace=True, p=[0.8, 0.2])
         F = np.diag(flips)
-        print(F.shape)
     if not load:
         # Generate data
         Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes, suffixes = generate_training_data(400, 1000, hops=hops)
@@ -301,7 +312,7 @@ def train_model():
     in_axes = tuple([None, None, None, None, 0, 0])
 
     if HYPERPARAMS['markov'] == 1:
-        order = 2
+        order = 1
         markov = Markov_Model(order)
         paths = onp.array([prefix + [target1, target2] for prefix, target1, target2 in zip(prefixes, target_nodes_all[0], target_nodes_all[1])], dtype='object')
 
@@ -318,9 +329,13 @@ def train_model():
         print("train accs")
         print(markov.test(prefixes_train, target_nodes_1hop_train, 1))
         print(markov.test(prefixes_train, target_nodes_2hop_train, 2))
+        print(markov.test_2_target(prefixes_train, target_nodes_1hop_train))
         print("test accs")
         print(markov.test(prefixes_test, target_nodes_1hop_test, 1))
         print(markov.test(prefixes_test, target_nodes_2hop_test, 2))
+        print(markov.test_2_target(prefixes_test, target_nodes_1hop_test))
+
+        raise Exception
 
         # reversed test paths
         rev_paths = [path[::-1] for path in paths]

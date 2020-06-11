@@ -143,7 +143,24 @@ class Markov_Model():
         pred_nodes = np.array([p[-1] for p in cur_prefixes])
         return np.average(target_nodes == pred_nodes)
 
+    def test_2_target(self, prefixes, target_nodes):
+        """
+        Returns 2-target accuracy of model
+        """
+        correct = 0
+        for i in range(len(prefixes)):
+            prefix = tuple(prefixes[i][-self.order:])
+            other_nbrs = list(self.weights[prefix].keys())
+            other_nbrs.remove(target_nodes[i])
+            random_nbr = np.random.choice(other_nbrs)
+            correct_prob, other_prob = self.weights[prefix][target_nodes[i]], \
+                                       self.weights[prefix][random_nbr]
 
+            if correct_prob == other_prob:
+                correct += 0.5
+            elif correct_prob > other_prob:
+                correct += 1
+        return correct / len(prefixes)
 
 # G = nx.Graph()
 # G.add_edges_from(((0, 1), (1, 2), (0, 2), (0, 3), (3, 1)))
