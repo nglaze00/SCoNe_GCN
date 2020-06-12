@@ -1,4 +1,31 @@
 """
+Usage:
+python3 trajectory_analysis.py ...
+Argument defaults:
+   'epochs': 1000; # of training epochs
+   'learning_rate': 0.001; starting learning rate
+   'batch_size': 100; # of samples per batch (randomly selected)
+   'hidden_layers': [(3, 16), (3, 16), (3, 16)]; each tuple is a layer (# of shift matrices, # of channels in layer)
+   'describe': 0; ask for a description of this test, print the description at the end
+   'reverse': 0;  also compute accuracy over the test set, but reversed
+   'load_data': 1; if 0, generate new data; if 1, load data from folder set in data_folder_suffix
+   'load_model': 0; if 0, train a new model, if 1, load model from file model_name.npy. Must set hidden_layers regardless of choice
+   'markov': 0; include tests using a 2nd-order Markov model
+   'model_name': 'model'; name of model to use when load_model = 1
+   'regional': 0; if 1 and load_model = 1, trains a model over upper graph region and tests over lower region
+   'flip_edges': 0; if 1, flips orientation of a random subset of edges. with tanh activation, should perform equally
+   'data_folder_suffix': 'working'; set suffix of folder to import data from (trajectory_data_Nhop_suffix)
+   'multi_graph': '': if not '', also tests on paths over the graph with the folder suffix set here
+   'holes': 1; if generation new data, sets whether the graph should have holes
+   }
+
+Examples:
+    python3 trajectory_analysis.py -model_name tanh -reverse 1 -epochs 1100 -load_model 1 -multi_graph no_holes
+        -loads model tanh.npy from models folder, tests it over reversed test set, and also tests over another graph saved in trajectory_data_Nhop_no_holes
+    python3 trajectory_analysis.py load_data 0 -holes 0 -model_name tanh_no_holes -hidden_layers [(3, 32), (3,16)] -data_folder_suffix no_holes2
+        -generates a new graph with no holes; saves dataset to trajectory_data_Nhop_no_holes2;
+            trains a new model with 2 layers (32 and 16 channels, respectively) for 1100 epochs, and saves its weights to tanh_no_holes.npy
+
 Results:
 
 -hidden_layers = [(3,16),(3,16),(3,16)], learning rate = 0.001, epochs = 1000
