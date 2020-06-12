@@ -5,6 +5,8 @@ from jax.scipy.special import logsumexp
 from jax.experimental.optimizers import adam
 from treelib import Tree
 
+onp.random.seed(1030)
+
 class Hodge_GCN():
     def __init__(self, epochs, step_size, batch_size, verbose=True):
         """
@@ -74,7 +76,14 @@ class Hodge_GCN():
         true_probs = preds[all_row_idxs, true_choice]
         # print([r[0] for r in random_probs[:20]], [r[0][0] for r in target_probs[:20]])
 
-        return onp.average(true_probs[mask==1] > random_probs[mask==1])
+        correct = 0
+        true_masked, random_masked = true_probs[mask==1], random_probs[mask==1]
+        for t, r in zip(true_masked, random_masked):
+            if t > r:
+                correct += 1
+            elif t == r:
+                correct += 0.5
+        return correct / sum(mask)
 
     def multi_hop_accuracy_binary(self, shifts, inputs, y, mask, nbrhoods, E_lookup, last_nodes, n_nbrs, hops):
         """

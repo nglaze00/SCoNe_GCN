@@ -8,7 +8,7 @@ Results:
                 train loss: 0.828606 -- train acc 0.691 -- test loss 1.304349 -- test acc 0.545
                 2hop binary: 0.14874999 0.12
                 2hop dist: 0.233 0.182
-                2-target: 0.79375 0.75
+                2-target: 0.856 0.853
                 reversed test loss: 1.516947, Test acc: 0.475
                 -Result: flipping orientations of random edges severely worsens performance
                     Train loss: 2.352922, Train acc: 0.394
@@ -18,7 +18,7 @@ Results:
         --> activation = tanh
                 train loss: 1.067673 -- train acc 0.607 -- test loss 1.240596 -- test acc 0.580
                 2hop dist: 0.183 0.163
-                2-target: 0.71625 0.73
+                2-target: 0.815, 0.815
                 reversed test loss: 1.013826, Test acc: 0.580
                 -Result: flipping orientations of random edges does not affect performance
 
@@ -42,10 +42,10 @@ Results:
                 reversed test loss: 1.672432, Test acc: 0.325
 
             activation = tanh:
-                train loss: 1.366938 -- train acc 0.517 -- test loss 1.336403 -- test acc 0.515
-                2hop dist: 0.125 0.127
-                2-target: 0.68375 0.75
-                reversed test loss: 1.166959, Test acc: 0.540
+                train loss: 1.336956 -- train acc 0.524 -- test loss 1.304922 -- test acc 0.525
+                2hop dist: 0.121 0.126
+                2-target accs: 0.764375 0.7775
+                Reversed Test loss: 1.164868, Test acc: 0.545
             activation = tanh, epochs = 1500:
                 train loss: 1.285150 -- train acc 0.522 -- test loss 1.258232 -- test acc 0.535
                 2hop dist: 0.108 0.118S
@@ -56,11 +56,6 @@ Results:
                 2-hop dist: 0.130 0.139
                 2-target accs: 0.71875 0.695
                 reversed test loss: 1.127183, Test acc: 0.520
-
-
-
-
-
 
     train on upper paths, test on lower paths:
         normal shifts:
@@ -78,6 +73,25 @@ Results:
             2-hop dist: 0.125, 0.05
             2-target: 0.667 0.529
 
+    train on normal graph, test on a different one:
+        same structure:
+            normal shifts, activation = tanh (model = tanh.npy)
+                Test loss: 1.442726, Test acc: 0.514
+                2-target accs: 0.76 0.7925
+            shifts = L_lower, L_lower
+                Test loss: 1.502356, Test acc: 0.454
+                2-target accs: 0.758125 0.75
+
+        no holes:
+            normal shifts, activation = tanh
+                Test loss: 1.678532, Test acc: 0.445
+                2-target accs: 0.744375 0.6825
+            shifts = L_lower, L_lower
+                Test loss: 1.700533, Test acc: 0.379
+                2-target accs: 0.701875 0.6675
+
+
+
 
 
 
@@ -89,6 +103,10 @@ Results:
 # todo
 # 3-hop?
 # boomerang flows?
+# generalization tests:
+#   train / test on different graphs (done)
+#   try graphs with more holes
+#   train w/holes, test without holes
 
 
 # orientation flip:
@@ -120,6 +138,8 @@ except Exception:
 
 import sys
 
+
+
 def hyperparams():
     """
     Parse hyperparameters from command line
@@ -132,7 +152,7 @@ def hyperparams():
     hyperparams = {'epochs': 1000,
                    'learning_rate': 0.001,
                    'batch_size': 100,
-                   'hidden_layers': [(3, 8), (3, 8)],
+                   'hidden_layers': [(3, 16), (3, 16), (3, 16)],
                    'describe': 0,
                    'reverse': 0,
                    'load_data': 1,
@@ -140,7 +160,10 @@ def hyperparams():
                    'markov': 0,
                    'model_name': 'model',
                    'regional': 0,
-                   'flip_edges': 0}
+                   'flip_edges': 0,
+                   'data_folder_suffix': 'working',
+                   'multi_graph': '',
+                   'holes': 1}
 
     for i in range(len(args) - 1):
         if args[i][0] == '-':
@@ -150,7 +173,7 @@ def hyperparams():
                 hyperparams['hidden_layers'] = []
                 for j in range(0, len(nums), 2):
                     hyperparams['hidden_layers'] += [(nums[j], nums[j + 1])]
-            elif args[i][1:] == 'model_name':
+            elif args[i][1:] in ['model_name', 'data_folder_suffix', 'multi_graph']:
                 hyperparams[args[i][1:]] = str(args[i+1])
             else:
                 hyperparams[args[i][1:]] = float(args[i+1])
@@ -181,7 +204,7 @@ def hodge_parallel_variable(weights, S_lower, S_upper, Bcond_func, last_node, fl
                   + S_lower @ cur_out @ weights[i*3 + 1] \
                   + S_upper @ cur_out @ weights[i*3 + 2]
 
-        cur_out = relu(cur_out)
+        cur_out = tanh(cur_out)
 
     logits = Bcond_func(last_node) @ cur_out @ weights[-1]
     return logits - logsumexp(logits)
@@ -200,7 +223,7 @@ def hodge_parallel(weights, S0, S1, Bcond, flows):
     return logits - logsumexp(logits)
 
 
-def data_setup(hops=(1,), load=True):
+def data_setup(hops=(1,), load=True, folder_suffix='working'):
     """
     Imports and sets up flow, target, and shift matrices for model training. Supports generating data for multiple hops
         at once
@@ -213,27 +236,27 @@ def data_setup(hops=(1,), load=True):
     if HYPERPARAMS['flip_edges']:
         # Flip orientation of a random subset of edges
         onp.random.seed(1)
-        _, _, _, _, _, G_undir, _, _ = load_training_data('trajectory_data_1hop_working')
+        _, _, _, _, _, G_undir, _, _ = load_training_data('trajectory_data_1hop_' + folder_suffix)
         flips = onp.random.choice([1, -1], size=len(G_undir.edges), replace=True, p=[0.8, 0.2])
         F = np.diag(flips)
     if not load:
         # Generate data
-        Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes, suffixes = generate_training_data(400, 1000, hops=hops)
-        target_nodes_all = [[] * len(suffixes[0])]
+        Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes, suffixes = generate_training_data(400, 1000, hops=hops, folder_suffix=folder_suffix, holes=HYPERPARAMS['holes'])
+        target_nodes_all = [[] for _ in suffixes[0]]
         for i in range(len(suffixes[0])):  # each hop
             for j in range(len(suffixes)): # each suffix
                 target_nodes_all[i].append(suffixes[j][i])
     for i in range(len(hops)):
         if load:
             # Load data
-            folder = 'trajectory_data_' + str(hops[i]) + 'hop_working'
+            folder = 'trajectory_data_' + str(hops[i]) + 'hop_' + folder_suffix
             X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_training_data(folder)
             B1, B2 = B_matrices
             target_nodes_all.append(target_nodes)
         else:
-            B1, B2, _ = B_matrices
+            B1, B2 = B_matrices
             X, y = Xs[i], ys[i]
-            save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, target_nodes_all[i], 'trajectory_data_' + str(hops[i]) + 'hop')
+            save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, target_nodes_all[i], 'trajectory_data_' + str(hops[i]) + 'hop_' + folder_suffix)
 
 
         inputs_all.append([None, np.array(last_nodes), X])
@@ -247,7 +270,7 @@ def data_setup(hops=(1,), load=True):
             L1_upper = F @ L1_upper @ F
 
         shifts = [L1_lower, L1_upper]
-
+        # shifts = [L1_lower, L1_lower]
 
 
     # Build E_lookup for multi-hop training
@@ -299,7 +322,8 @@ def train_model():
 
 
 
-    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all, prefixes = data_setup(hops=(1,2), load=HYPERPARAMS['load_data'])
+    inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all, prefixes = data_setup(hops=(1,2), load=HYPERPARAMS['load_data'], folder_suffix=HYPERPARAMS['data_folder_suffix'])
+
     (inputs_1hop, inputs_2hop), (y_1hop, y_2hop) = inputs_all, y_all
 
     last_nodes = inputs_1hop[1]
@@ -430,27 +454,40 @@ def train_model():
             pass
         onp.save('models/' + HYPERPARAMS['model_name'], hodge.weights)
 
-    print('Multi hop accs:', hodge.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods, E_lookup, last_nodes, prefixes, 2))
-
-
-    # train_2hop, test_2hop = hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, train_mask, nbrhoods, E_lookup, last_nodes, n_nbrs, 2), \
-    #                         hodge.multi_hop_accuracy_binary(shifts, inputs_2hop, y_2hop, test_mask, nbrhoods, E_lookup,
-    #                                                         last_nodes, n_nbrs, 2)
-    # print(train_2hop, test_2hop)
-    train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
-                                  hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
-
-    print('2-target accs:', train_2target, test_2target)
-
     if HYPERPARAMS['reverse']:
         rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
             onp.load('trajectory_data_1hop_working/rev_flows_in.npy'), onp.load('trajectory_data_1hop_working/rev_targets.npy'), \
             onp.load('trajectory_data_2hop_working/rev_targets.npy'), onp.load('trajectory_data_1hop_working/rev_last_nodes.npy')
         rev_n_nbrs = [len(neighborhood(G_undir, n)) for n in rev_last_nodes]
+        print('Reversed ', end='')
         hodge.test([inputs_1hop[0], rev_last_nodes, rev_flows_in], rev_targets_1hop, test_mask, rev_n_nbrs)
 
+    if HYPERPARAMS['multi_graph'] != '':
+        inputs_all_o, y_all_o, train_mask_o, test_mask_o, shifts_o, G_undir_o, E_lookup_o, nbrhoods_o, n_nbrs_o, target_nodes_all_o, prefixes_o = data_setup(
+            hops=(1, 2), load=HYPERPARAMS['load_data'], folder_suffix=HYPERPARAMS['multi_graph'])
 
+        (inputs_1hop_o, inputs_2hop_o), (y_1hop_o, y_2hop_o) = inputs_all_o, y_all_o
 
+        last_nodes_o = inputs_1hop[1]
+        print('Different graph ' + HYPERPARAMS['multi_graph'], end=' ')
+        hodge.shifts = shifts_o
+        hodge.test(inputs_1hop_o, y_1hop_o, onp.array([1] * len(y_1hop_o)), n_nbrs_o)
+        train_2target_o, test_2target_o = hodge.two_target_accuracy(shifts_o, inputs_1hop_o, y_1hop_o, train_mask_o, n_nbrs_o), \
+                                      hodge.two_target_accuracy(shifts_o, inputs_1hop_o, y_1hop_o, test_mask_o, n_nbrs_o)
+        print('2-target accs:', train_2target_o, test_2target_o)
+        print('Multi hop accs:',
+              hodge.multi_hop_accuracy_dist(shifts_o, inputs_1hop_o, target_nodes_all_o[1], [train_mask_o, test_mask_o], nbrhoods_o,
+                                            E_lookup_o, last_nodes_o, prefixes_o, 2))
+        hodge.shifts = shifts
+
+    print('standard test set:')
+    train_2target, test_2target = hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
+                                  hodge.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
+
+    print('2-target accs:', train_2target, test_2target)
+    print('Multi hop accs:',
+          hodge.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods,
+                                        E_lookup, last_nodes, prefixes, 2))
 
     if HYPERPARAMS['describe'] == 1:
         print(desc)

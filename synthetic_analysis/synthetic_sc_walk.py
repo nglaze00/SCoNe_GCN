@@ -9,7 +9,7 @@ import os
 
 
 ### Generate graph + walks ###
-def random_SC_graph(n):
+def random_SC_graph(n, holes=True):
     """
     Randomly generates a graph of simplicial complexes, made up of n nodes.
     Graph has holes in top left and bottom right regions.
@@ -25,14 +25,17 @@ def random_SC_graph(n):
         List of valid node indexes (nodes not in either hole)
 
     """
-
+    np.random.seed(9)
     points = np.random.rand(n,2)
+    np.random.seed(1030)
     tri = Delaunay(points)
 
     valid_idxs = np.where((np.linalg.norm(points - [1/4, 3/4], axis=1) > 1/8) \
                           & (np.linalg.norm(points - [3/4, 1/4], axis=1) > 1/8))[0]
 
-    faces = [t for t in tri.simplices if np.in1d(t,valid_idxs).all()]
+    if holes:
+        valid_idxs = np.array(range(len(points)))
+    faces = [t for t in tri.simplices if np.in1d(t, valid_idxs).all()]
 
     # SC matrix construction
     G = nx.DiGraph()
@@ -160,12 +163,12 @@ def generate_random_walks(G, points, valid_idxs, E, E_lookup, m=1000):
 
     return paths
 
-def synthesize_SC_graph(n, m):
+def synthesize_SC_graph(n, holes=True):
     """
     Generates a random n-node SC graph with holes in it.
     """
 
-    G, V, E, E_lookup, faces, points, valid_idxs = random_SC_graph(n)
+    G, V, E, E_lookup, faces, points, valid_idxs = random_SC_graph(n, holes=holes)
     B1, B2 = incidience_matrices(G, V, E, faces)
 
     return G, E, E_lookup, B1, B2, points, valid_idxs
@@ -314,13 +317,13 @@ def generate_reversed_flows(flows_in, E, E_lookup, G_undir, last_nodes, targets_
 # print(rev_flows_in, rev_targets_1hop, rev_targets_2hop)
 
 ### v   Entry points   v ###
-def generate_training_data(n, m, hops=(1,)):
+def generate_training_data(n, m, hops=(1,), folder_suffix='working', holes=True):
     """
     Generates an m-walk synthetic training data over an n-node SC graph. Returns a flows_in, Bconds, and targets
         as lists of matrices to account for generating datasets with multiple numbers of hops.
     """
 
-    G, E, E_lookup, B1, B2, points, valid_idxs = synthesize_SC_graph(n, m)
+    G, E, E_lookup, B1, B2, points, valid_idxs = synthesize_SC_graph(n, holes=holes)
     G_undir = G.to_undirected()
 
     paths = generate_random_walks(G, points, valid_idxs, E, E_lookup, m=m)
@@ -372,12 +375,17 @@ def generate_training_data(n, m, hops=(1,)):
 
     rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
         generate_reversed_flows(flows_ins[0], E, E_lookup, G_undir, last_nodes, targetss[0], targetss[1], paths=paths)
-    np.save('trajectory_data_1hop/rev_flows_in', rev_flows_in)
-    np.save('trajectory_data_1hop/rev_targets', rev_targets_1hop)
-    np.save('trajectory_data_2hop/rev_targets', rev_targets_2hop)
-    np.save('trajectory_data_1hop/rev_last_nodes', rev_last_nodes)
+    try:
+        os.mkdir('trajectory_data_1hop_' + folder_suffix)
+        os.mkdir('trajectory_data_2hop_' + folder_suffix)
+    except:
+        pass
+    np.save('trajectory_data_1hop_' + folder_suffix + '/rev_flows_in', rev_flows_in)
+    np.save('trajectory_data_1hop_' + folder_suffix + '/rev_targets', rev_targets_1hop)
+    np.save('trajectory_data_2hop_' + folder_suffix + '/rev_targets', rev_targets_2hop)
+    np.save('trajectory_data_1hop_' + folder_suffix + '/rev_last_nodes', rev_last_nodes)
 
-    return flows_ins, [B1, B2, None], targetss, train_mask, test_mask, G_undir, last_nodes, suffixes
+    return flows_ins, [B1, B2], targetss, train_mask, test_mask, G_undir, last_nodes, suffixes
 
 def save_training_data(flows_in, B1, B2, targets, train_mask, test_mask, G_undir, last_nodes, target_nodes, folder):
     """
