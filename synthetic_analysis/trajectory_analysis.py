@@ -26,6 +26,10 @@ Examples:
         -generates a new graph with no holes; saves dataset to trajectory_data_Nhop_no_holes2;
             trains a new model with 2 layers (32 and 16 channels, respectively) for 1100 epochs, and saves its weights to tanh_no_holes.npy
 
+    python3 trajectory_analysis.py load_data 0 -holes 1 -data_folder_suffix holes
+        -make a dataset with holes, save with folder suffix holes (just stop the program once training starts if you just want to make a new dataset)
+    python3 trajectory_analysis.py load_data 0 -holes 0 -data_folder_suffix no_holes -model_name tanh_no_holes -multi_graph holes
+        -create a dataset using folder suffix no_holes, train a model over it using default settings, and test it over the graph with data folder suffix holes
 Results:
 
 -hidden_layers = [(3,16),(3,16),(3,16)], learning rate = 0.001, epochs = 1000
@@ -133,7 +137,7 @@ Results:
 # generalization tests:
 #   train / test on different graphs (done)
 #   try graphs with more holes
-#   train w/holes, test without holes
+#   train w/holes, test without holes (done)
 
 
 # orientation flip:
