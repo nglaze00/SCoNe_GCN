@@ -37,11 +37,12 @@ def gcn_layer(W, X): # same W for all layers
 def mlp_layer(W, b, X):
     return relu(np.dot(W, X) + b)
 
-def gen_params(c_mlp_shapes, z_mlp_shapes):
+def gen_params(c_mlp_shapes, z_mlp_shapes, seed=5):
     """
     Generates initial parameters for the C-matrix MLPs and Z-matrix MLPs
     Returns c_mlp_Ws, c_mlp_bs, z_mlp_Ws, z_mlp_bs
     """
+    onp.random.seed(seed)
     return [onp.random.random_sample(shape) for shape in c_mlp_shapes], \
             [onp.random.random_sample((shape[0], 1)) for shape in c_mlp_shapes], \
             [onp.random.random_sample(shape) for shape in z_mlp_shapes], \
@@ -250,7 +251,7 @@ def sample_dataset():
     ])
     return X, F, E, A, y, idx_to_edge
 
-def train_gretel(X, F, E, A, y, idx_to_edge, k=3, lr=0.001):
+def train_gretel(X, F, E, A, y, idx_to_edge, k=3, lr=1):
     # initialize weights
     c_mlp_shapes = [[2 * F.shape[-1] + E.shape[-1]] * 2, [2 * F.shape[-1] + E.shape[-1]] * 2, [1, 2 * F.shape[-1] + E.shape[-1]]]
     z_mlp_shapes = [[2 * X.shape[-1] + 2 * F.shape[-1] + E.shape[-1]] * 2, [2 * X.shape[-1] + 2 * F.shape[-1] + E.shape[-1]] * 2, [1, 2 * X.shape[-1] + 2 * F.shape[-1] + E.shape[-1]]]
@@ -260,24 +261,26 @@ def train_gretel(X, F, E, A, y, idx_to_edge, k=3, lr=0.001):
 
     # test GRETEL on first sample
     gretel(X[1], F, E, A, weights)
-    print(target_likelihood(X, F, E, A, idx_to_edge, weights, y))
-    # print(loss(weights, X, F, E, A, y))
+    # print(target_likelihood(X, F, E, A, idx_to_edge, weights, y))
+    print(loss(weights, X, F, E, A, y))
     # train GRETEL
 
 
     # @jit
     def gradient_step(X, F, E, A, weights, y):
         grads = grad(loss)(weights, X, F, E, A, y)
-        print(grads[0])
+        # print(grads[0])
         # print([a.shape for a in grads])
         # print([a.shape for a in weights])
         for i in range(len(weights)):
             weights[i] -= lr * grads[i]
 
-        return weights
+        print(np.average(np.abs(grads[-1])))
 
-    weights = gradient_step(X, F, E, A, weights, y)
-    print(loss(weights, X, F, E, A, y), weights[0])
+        return weights
+    for i in range(10):
+        weights = gradient_step(X, F, E, A, weights, y)
+        print(loss(weights, X, F, E, A, y))
     raise Exception
 
 

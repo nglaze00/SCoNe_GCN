@@ -295,6 +295,7 @@ def data_setup(hops=(1,), load=True, folder_suffix='working'):
     # set up neighborhood data
     last_nodes = inputs_all[0][1]
     print(last_nodes[0])
+    print(sum(train_mask) + sum(test_mask))
     max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
     nbrhoods_dict = {node: onp.array(list(map(int, G_undir[node]))) for node in
                      map(int, sorted(G_undir.nodes))}

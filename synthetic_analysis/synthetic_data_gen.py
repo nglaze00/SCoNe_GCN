@@ -19,7 +19,7 @@ def random_SC_graph(n, holes=True):
         List of valid node indexes (nodes not in either hole)
 
     """
-    np.random.seed(0)
+    np.random.seed(1)
     coords = np.random.rand(n,2)
     np.random.seed(1030)
     tri = Delaunay(coords)
@@ -34,17 +34,23 @@ def random_SC_graph(n, holes=True):
     # SC matrix construction
     G = nx.OrderedDiGraph()
     G.add_nodes_from(np.arange(n)) # add nodes that are excluded to keep indexing easy
-
+    E = []
     for f in faces:
         [a,b,c] = sorted(f)
-        G.add_edge(a,b)
-        G.add_edge(b,c)
-        G.add_edge(a,c)
+        E.append((a,b))
+        E.append((b,c))
+        E.append((a,c))
 
-    V = np.array(sorted(G.nodes))
-    E = list(sorted(G.edges))
+    V = np.array(G.nodes)
+    E = list(sorted(E))
+
+    for e in E:
+        G.add_edge(*e)
+
+
     edge_to_idx = {E[i]: i for i in range(len(E))}
-
+    print('Average degree:', np.average([G.degree[node] for node in range(n)]))
+    print('Nodes:', len(V), 'Edges:', len(E))
     return G, V, E, faces, edge_to_idx, coords, valid_idxs
 
 def incidience_matrices(G, V, E, faces):

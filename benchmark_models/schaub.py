@@ -9,7 +9,7 @@ import networkx as nx
 import numpy as np
 from scipy.linalg import null_space
 from sklearn.metrics import log_loss
-from synthetic_analysis.synthetic_sc_walk import load_training_data, incidience_matrices
+from synthetic_analysis.synthetic_data_gen import load_dataset, incidience_matrices
 
 def softmax(z, axis=None):
     """
@@ -77,14 +77,24 @@ def embed(G, B2=None):
     V = null_space(L2)
     return V, B1
 
-def project_flows(V, B1, flows, last_nodes, target_nodes):
+def neighborhood(G, v):
+    '''
+    G: networkx undirected graph
+    v: node label
+    '''
+    return np.array(sorted(G[v]))
+
+def project_flows(V, B1, flows, last_nodes, nbrhoods, max_deg):
     # print(B1.shape)
     # print(V.shape, V.T.shape, flows.shape)
     projs = V @ V.T @ flows
-    for i in range(projs.shape[1]):
-        projs[:, i][B1[last_nodes[i]] == 0] = -float('inf')
+    # for i in range(projs.shape[1]):
+    #     projs[:, i][B1[last_nodes[i]] == 0] = -float('inf')
 
-    return softmax(projs, axis=0)
+    projs_nbrs = np.zeros((max_deg, flows.shape[1]))
+    for i in range(len(last_nodes)):
+        projs_nbrs[:len(nbrhoods[i]), i] = nbrhoods[i]
+    return softmax(projs_nbrs, axis=0)
 
 def loss(y, y_hat):
     """
@@ -110,34 +120,27 @@ def sample_dataset():
     suffixes = [1, 2]
     y = np.array([
         [1, 0],
-        [0, 0],
-        [0, 0],
-        [0, 0],
-        [0, 1]]
+        [0, 1],
+        [0, 0]]
     )
     last_nodes = [0, 3]
 
     edge_to_idx = {edge: i for i, edge in enumerate(G.edges)}
     idx_to_edge = {i: edge for i, edge in enumerate(G.edges)}
 
-    return G, paths, last_nodes, y, edge_to_idx, idx_to_edge
+    target_nodes = [1, 2]
+
+    return G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes
 
 def synthetic_dataset(folder="trajectory_data_1hop_schaub"):
-    X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_training_data("../synthetic_analysis/" + folder)
+    X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_dataset("../synthetic_analysis/" + folder)
 
     edge_to_idx = {edge: i for i, edge in enumerate(G_undir.edges)}
     idx_to_edge = {i: edge for i, edge in enumerate(G_undir.edges)}
-    y = np.zeros((len(G_undir.edges), X.shape[0]))
-    for i, edge in enumerate(zip(last_nodes, target_nodes)):
-        try:
-            y[edge_to_idx[edge]][i] = 1
-        except:
-            y[edge_to_idx[edge[::-1]]][i] = 1
-    #      G, flows, last_nodes, y, edge_to_idx, idx_to_edge
+
     return G_undir, B_matrices, X.reshape(X.shape[:-1]).T, last_nodes, target_nodes, y, edge_to_idx, idx_to_edge
 
-def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, flows=None, B1=None, B2=None):
-    target_nodes = [idx_to_edge[x][1] for x in np.argmax(y, axis=0)]
+def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes, flows=None, B1=None, B2=None):
     # embed
     V, b1 = embed(G, B2=B2)
     if type(B1) != np.ndarray:
@@ -147,8 +150,15 @@ def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, flows=None, 
         flows = np.array([build_flow(G, path, edge_to_idx) for path in paths]).T
     # print(flows.shape)
 
+    nbrhoods = [neighborhood(G, n) for n in last_nodes]
+    max_deg = max([len(nbrhd) for nbrhd in nbrhoods])
     # project flows
-    preds = project_flows(V, B1, flows, last_nodes, target_nodes)
+    preds = project_flows(V, B1, flows, last_nodes, nbrhoods, max_deg)
+    print(y.shape)
+
+    for i in range(preds.shape[1]):
+        assert len(nbrhoods[i]) > np.argmax(y[:, i])
+        print('preds:', preds[:, i], 'y:', y[:, i], 'best node:', np.argmax(y[:, i]), 'pred node:', np.argmax(preds[:, i]))
     # for i in range(preds.shape[1]):
     #     idxs = [j for j, x in enumerate(preds[:, i]) if x != 0]
     #     print(preds[idxs, i])
@@ -161,15 +171,14 @@ def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, flows=None, 
 
 # test dataset
 print(eval_dataset(*sample_dataset()))
-
 # synthetic dataset
 G, (B1, B2), flows, last_nodes, target_nodes, y, edge_to_idx, idx_to_edge = synthetic_dataset()
 B1_mine = np.array(nx.incidence_matrix(G, oriented=True).todense())
-_, B2_mine = incidience_matrices(G, G.nodes, G.edges, get_faces(G))
-# avg degree: 5.92
-print(np.average(np.sum(np.abs(B1), axis=1)))
+# _, B2_mine = incidience_matrices(G, G.nodes, G.edges, get_faces(G))
+
+print('Avg degree:', 2 * len(G.edges) / len(G.nodes))
 
 
 # todo verify B2; why do mine & saved Bs give diff results?
 
-print(eval_dataset(G, None, last_nodes, y, edge_to_idx, idx_to_edge, flows=flows, B1=B1_mine, B2=B2_mine))
+print(eval_dataset(G, None, last_nodes, y.reshape(y.shape[:2]).T, edge_to_idx, idx_to_edge, target_nodes, flows=flows, B1=B1, B2=B2))
