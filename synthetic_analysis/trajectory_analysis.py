@@ -25,8 +25,7 @@ Examples:
     python3 trajectory_analysis.py load_data 0 -holes 0 -model_name tanh_no_holes -hidden_layers [(3, 32), (3,16)] -data_folder_suffix no_holes2
         -generates a new graph with no holes; saves dataset to trajectory_data_Nhop_no_holes2;
             trains a new model with 2 layers (32 and 16 channels, respectively) for 1100 epochs, and saves its weights to tanh_no_holes.npy
-
-    python3 trajectory_analysis.py load_data 0 -holes 1 -data_folder_suffix holes
+    python3 trajectory_analysis.py -load_data 0 -holes 1 -data_folder_suffix holes
         -make a dataset with holes, save with folder suffix holes (just stop the program once training starts if you just want to make a new dataset)
     python3 trajectory_analysis.py load_data 0 -holes 0 -data_folder_suffix no_holes -model_name tanh_no_holes -multi_graph holes
         -create a dataset using folder suffix no_holes, train a model over it using default settings, and test it over the graph with data folder suffix holes
@@ -121,16 +120,6 @@ Results:
                 Test loss: 1.700533, Test acc: 0.379
                 2-target accs: 0.701875 0.6675
 
-
-
-
-
-
-
-
-
-
-
 # todo
 # 3-hop?
 # boomerang flows?
@@ -159,11 +148,11 @@ import numpy as onp
 # from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data
 # from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
 try:
-    from synthetic_analysis.synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows, flow_to_path
+    from synthetic_analysis.synthetic_data_gen import load_dataset, generate_dataset, neighborhood, conditional_incidence_matrix, flow_to_path
     from synthetic_analysis.hodge_trajectory_model import Hodge_GCN
     from synthetic_analysis.markov_model import Markov_Model
 except Exception:
-    from synthetic_sc_walk import load_training_data, generate_training_data, save_training_data, neighborhood, conditional_incidence_matrix, generate_reversed_flows, flow_to_path
+    from synthetic_data_gen import load_dataset, generate_dataset, neighborhood, conditional_incidence_matrix, flow_to_path
     from hodge_trajectory_model import Hodge_GCN
     from markov_model import Markov_Model
 
@@ -267,27 +256,19 @@ def data_setup(hops=(1,), load=True, folder_suffix='working'):
     if HYPERPARAMS['flip_edges']:
         # Flip orientation of a random subset of edges
         onp.random.seed(1)
-        _, _, _, _, _, G_undir, _, _ = load_training_data('trajectory_data_1hop_' + folder_suffix)
+        _, _, _, _, _, G_undir, _, _ = load_dataset('trajectory_data_1hop_' + folder_suffix)
         flips = onp.random.choice([1, -1], size=len(G_undir.edges), replace=True, p=[0.8, 0.2])
         F = np.diag(flips)
     if not load:
         # Generate data
-        Xs, B_matrices, ys, train_mask, test_mask, G_undir, last_nodes, suffixes = generate_training_data(400, 1000, hops=hops, folder_suffix=folder_suffix, holes=HYPERPARAMS['holes'])
-        target_nodes_all = [[] for _ in suffixes[0]]
-        for i in range(len(suffixes[0])):  # each hop
-            for j in range(len(suffixes)): # each suffix
-                target_nodes_all[i].append(suffixes[j][i])
-    for i in range(len(hops)):
-        if load:
-            # Load data
-            folder = 'trajectory_data_' + str(hops[i]) + 'hop_' + folder_suffix
-            X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_training_data(folder)
-            B1, B2 = B_matrices
-            target_nodes_all.append(target_nodes)
-        else:
-            B1, B2 = B_matrices
-            X, y = Xs[i], ys[i]
-            save_training_data(Xs[i], B1, B2, ys[i], train_mask, test_mask, G_undir, last_nodes, target_nodes_all[i], 'trajectory_data_' + str(hops[i]) + 'hop_' + folder_suffix)
+        generate_dataset(400, 1000, folder=folder_suffix, holes=HYPERPARAMS['holes'])
+        raise Exception
+    for h in hops:
+        # Load data
+        folder = 'trajectory_data_' + str(h) + 'hop_' + folder_suffix
+        X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_dataset(folder)
+        B1, B2 = B_matrices
+        target_nodes_all.append(target_nodes)
 
 
         inputs_all.append([None, np.array(last_nodes), X])
@@ -303,7 +284,6 @@ def data_setup(hops=(1,), load=True, folder_suffix='working'):
         shifts = [L1_lower, L1_upper]
         # shifts = [L1_lower, L1_lower]
 
-
     # Build E_lookup for multi-hop training
     e = onp.nonzero(B1.T)[1]
     edges = onp.array_split(e, len(e)/2)
@@ -313,6 +293,8 @@ def data_setup(hops=(1,), load=True, folder_suffix='working'):
         E_lookup[tuple(e)] = i
 
     # set up neighborhood data
+    last_nodes = inputs_all[0][1]
+    print(last_nodes[0])
     max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
     nbrhoods_dict = {node: onp.array(list(map(int, G_undir[node]))) for node in
                      map(int, sorted(G_undir.nodes))}

@@ -34,7 +34,7 @@ def relu(x):
 def gcn_layer(W, X): # same W for all layers
     return relu(np.dot(X, W))
 
-def mlp_layer(W, b, X): \
+def mlp_layer(W, b, X):
     return relu(np.dot(W, X) + b)
 
 def gen_params(c_mlp_shapes, z_mlp_shapes):
@@ -52,7 +52,7 @@ def gen_params(c_mlp_shapes, z_mlp_shapes):
 # For each edge, initialize each edge weight z[i,j] with ?-layer MLP w/c[i], c[j], f[i], f[j], f[i,j] inputs
 # Final weight = softmax(z[i,j]) over its neighbors
 
-def gretel(X, F, E, weights, k=3):
+def gretel(X, F, E, A, weights, k=3):
     """
     X:          matrix of vectors x_t
     F:          node features
@@ -66,6 +66,9 @@ def gretel(X, F, E, weights, k=3):
     W_gcn = np.zeros(E.shape)
     for i in range(E.shape[0]):
         for j in range(E.shape[1]):
+            if A[i][j] == 0: # skip non-connected edges
+                continue
+
             cur = np.concatenate((F[i], F[j], E[i][j]))
             cur = cur.reshape((cur.shape[0], 1))
 
@@ -74,7 +77,6 @@ def gretel(X, F, E, weights, k=3):
 
             W_gcn = index_update(W_gcn, index[i, j], cur[0][0])
     W_gcn = W_gcn.reshape(W_gcn.shape[:2])
-
 
     # GCN over each x_t (build matrix C)
     C = np.zeros(X.shape)
@@ -88,7 +90,8 @@ def gretel(X, F, E, weights, k=3):
     Z = np.zeros(E.shape)
     for i in range(E.shape[0]):
         for j in range(E.shape[1]):
-
+            if A[i][j] == 0: # skip non-connected edges
+                continue
             cur = np.concatenate((C[i], C[j], F[i], F[j], E[i][j]))
             cur = cur.reshape((cur.shape[0], 1))
 
@@ -100,12 +103,32 @@ def gretel(X, F, E, weights, k=3):
     # softmax over outgoing nbrs of each node
     return softmax(Z)
 
-def suffix_likelihood(X, F, E, weights, suffix):
+gretel_batch = vmap(gretel, in_axes=(0, None, None, None, None))
+
+def target_likelihood(X_all, F, E, A, idx_to_edge, weights, suffixes, ):
+    W_all = gretel_batch(X_all, F, E, A, weights)
+
+    P_all = np.zeros((X_all.shape[0], len(idx_to_edge), len(idx_to_edge)))
+    for s in range(W_all.shape[0]):
+        for a, (i, j) in idx_to_edge.items():
+            for b, (k, l) in idx_to_edge.items():
+                if j != k or i == l:
+                    continue
+                P_all = index_update(P_all, index[s,a,b], (W_all[s][k][l] / (1 - W_all[s][k][i]))[0])
+
+    B_all = np.zeros((X_all.shape[0], len(idx_to_edge), A.shape[0]))
+    for s in range(B_all.shape[0]):
+        for m, edge in idx_to_edge.items():
+            B_all = index_update(B_all, index[s, m, edge[0]], W_all[s][edge[0]][edge[1]][0])
+
+    preds = np.linalg.pinv(B_all[0]) @ P_all[0] @ B_all[0] @ X_all[0][:, -1] # todo vectorize
+    raise Exception
+def suffix_likelihood(X, F, E, A, weights, suffix):
     """
     Returns the negative log-likelihood of the given suffix
     """
 
-    W = gretel(X, F, E, weights)
+    W = gretel(X, F, E, A, weights)
 
     likelihood = 1
     prev_node = None
@@ -122,56 +145,112 @@ def suffix_likelihood(X, F, E, weights, suffix):
 
     return -np.log(likelihood)
 
-def loss(weights, X_all, F, E, suffixes):
+def loss(weights, X_all, F, E, A, suffixes):
     """
     Returns the negative log-likelihood of each sample
     """
-    return np.sum(np.array([suffix_likelihood(X, F, E, weights, suffix) for X, suffix in zip(X_all, suffixes)]))
+    return np.sum(np.array([suffix_likelihood(X, F, E, A, weights, suffix) for X, suffix in zip(X_all, suffixes)]))
 
 
 def sample_dataset():
     # sample dataset
-    # G =
-    # 1 1 1
-    # 1 1 1
-    # 1 1 1
-    X = np.array([ # 2 paths of length 2, over 3 nodes
+    A = np.array([
+        [0, 1, 1, 0, 0, 0, 0],
+        [1, 0, 0, 1, 1, 0, 0],
+        [1, 0, 0, 0, 0, 1, 1],
+        [0, 1, 0, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0, 0, 0],
+        [0, 0, 1, 0, 0, 0, 0],
+        [0, 0, 1, 0, 0, 0, 0]])
+
+    edges = []
+    for i in range(len(A)):
+        for j in range(len(A[0])):
+            if A[i][j] == 1:
+                edges.append((i, j))
+
+    idx_to_edge = {i: edge for i, edge in enumerate(edges)}
+
+    X = np.array([  # 2 paths of length 2
         [
-            [1.0, 0.0], # 0 -> 1
+            [1.0, 0.0],  # 0 -> 1
             [0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
             [0.0, 0.0]
         ],
         [
-            [0.0, 0.0], # 1 -> 2
-            [1.0, 0.0],
-            [0.0, 1.0]
-        ]
+            [1.0, 0.0],  # 0 -> 2
+            [0.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 0.0]
+        ],
     ])
-
-    y = np.array([ # suffix node #s
-        [2],
-        [0]
+    # todo think of better sample data (tree structure?)
+    # todo right format?
+    y = np.array([  # suffix nodes
+        [
+            3
+            # [0.0],  # 0 -> 1 -> (3)
+            # [0.0],
+            # [0.0],
+            # [1.0],
+            # [0.0],
+            # [0.0],
+            # [0.0]
+        ],
+        [
+            5
+            # [0.0],  # 0 -> 2 -> (5)
+            # [0.0],
+            # [0.0],
+            # [0.0],
+            # [0.0],
+            # [1.0],
+            # [0.0]
+        ],
     ])
     F = np.array([
+        [1.0],
+        [1.0],
+        [1.0],
+        [1.0],
         [1.0],
         [1.0],
         [1.0]
     ])
     E = np.array([
         [
-            [1.0], [1.0], [1.0]
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
         ],
         [
-            [1.0], [1.0], [1.0]
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
         ],
         [
-            [1.0], [1.0], [1.0]
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
         ],
+        [
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
+        ],
+        [
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
+        ],
+        [
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
+        ],
+        [
+            [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]
+        ],
+
     ])
-    return X, y, F, E
+    return X, F, E, A, y, idx_to_edge
 
-
-def train_gretel(X, y, F, E, k=3, lr=0.001):
+def train_gretel(X, F, E, A, y, idx_to_edge, k=3, lr=0.001):
     # initialize weights
     c_mlp_shapes = [[2 * F.shape[-1] + E.shape[-1]] * 2, [2 * F.shape[-1] + E.shape[-1]] * 2, [1, 2 * F.shape[-1] + E.shape[-1]]]
     z_mlp_shapes = [[2 * X.shape[-1] + 2 * F.shape[-1] + E.shape[-1]] * 2, [2 * X.shape[-1] + 2 * F.shape[-1] + E.shape[-1]] * 2, [1, 2 * X.shape[-1] + 2 * F.shape[-1] + E.shape[-1]]]
@@ -180,14 +259,16 @@ def train_gretel(X, y, F, E, k=3, lr=0.001):
     weights = [*c_mlp_W, *c_mlp_b, *z_mlp_W, *z_mlp_b]
 
     # test GRETEL on first sample
-    gretel(X[1], F, E, weights)
-    print(loss(weights, X, F, E, y))
+    gretel(X[1], F, E, A, weights)
+    print(target_likelihood(X, F, E, A, idx_to_edge, weights, y))
+    # print(loss(weights, X, F, E, A, y))
     # train GRETEL
-    gretel_batch = vmap(gretel, in_axes=(0, None, None, None))
+
 
     # @jit
-    def gradient_step(X, F, E, weights, y):
-        grads = grad(loss)(weights, X, F, E, y)
+    def gradient_step(X, F, E, A, weights, y):
+        grads = grad(loss)(weights, X, F, E, A, y)
+        print(grads[0])
         # print([a.shape for a in grads])
         # print([a.shape for a in weights])
         for i in range(len(weights)):
@@ -195,11 +276,13 @@ def train_gretel(X, y, F, E, k=3, lr=0.001):
 
         return weights
 
-    weights = gradient_step(X, F, E, weights, y)
-    print(loss(weights, X, F, E, y), weights[0])
+    weights = gradient_step(X, F, E, A, weights, y)
+    print(loss(weights, X, F, E, A, y), weights[0])
     raise Exception
 
-train_gretel(*sample_dataset())
+
+if __name__ == '__main__':
+    train_gretel(*sample_dataset())
 
 # Build path by choosing biggest edge weight at each node
 # at node i-> next is max(W[i])

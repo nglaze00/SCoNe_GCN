@@ -3,8 +3,6 @@ import jax.numpy as jnp
 import pickle as pkl
 import networkx as nx
 from scipy.spatial import Delaunay
-
-
 import os
 
 
@@ -33,12 +31,12 @@ def random_SC_graph(n, holes=True):
     valid_idxs = np.where((np.linalg.norm(points - [1/4, 3/4], axis=1) > 1/8) \
                           & (np.linalg.norm(points - [3/4, 1/4], axis=1) > 1/8))[0]
 
-    if holes:
+    if not holes:
         valid_idxs = np.array(range(len(points)))
     faces = [t for t in tri.simplices if np.in1d(t, valid_idxs).all()]
 
     # SC matrix construction
-    G = nx.DiGraph()
+    G = nx.OrderedDiGraph()
     G.add_nodes_from(np.arange(n)) # add nodes that are excluded to keep indexing easy
 
     for f in faces:
@@ -46,11 +44,10 @@ def random_SC_graph(n, holes=True):
         G.add_edge(a,b)
         G.add_edge(b,c)
         G.add_edge(a,c)
-    
+
     V = sorted(G.nodes)
     E = sorted(G.edges)
     E_lookup = dict(zip(E,range(len(E))))
-
     return G, V, E, E_lookup, faces, points, valid_idxs
 
 def incidience_matrices(G, V, E, faces):
@@ -357,7 +354,7 @@ def generate_training_data(n, m, hops=(1,), folder_suffix='working', holes=True)
         penultimate_nbrs = [np.array(sorted(neighborhood(G_undir, s[h - 1]))) for s in suffixes_with_last_pref]
         endpoints = [s[h] for s in suffixes_with_last_pref]
 
-        # print('Mean number of choices: {}'.format(np.mean([len(Nv) for Nv in paths_truncated_multihop_neighbors])))
+
         Bconds = [conditional_incidence_matrix(B1, Nv, D_1hop) for Nv in penultimate_nbrs]
         # get max multi-hop degree for padding
         # create one-hot target vectors
@@ -393,7 +390,7 @@ def save_training_data(flows_in, B1, B2, targets, train_mask, test_mask, G_undir
     """
     if not os.path.isdir(folder):
         os.mkdir(folder)
-
+    print(G_undir.nodes)
     file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'Bconds', 'targets', 'train_mask',
                                                                'test_mask', 'G_undir', 'last_nodes', 'target_nodes')]
 
@@ -403,7 +400,7 @@ def save_training_data(flows_in, B1, B2, targets, train_mask, test_mask, G_undir
     np.save(file_paths[4], targets)
     np.save(file_paths[5], train_mask)
     np.save(file_paths[6], test_mask)
-    nx.readwrite.write_adjlist(G_undir, file_paths[7])
+    nx.readwrite.gpickle.write_gpickle(G_undir, file_paths[7])
     np.save(file_paths[8], last_nodes)
     np.save(file_paths[9], target_nodes)
 
@@ -413,10 +410,10 @@ def load_training_data(folder):
     """
     file_paths = [os.path.join(folder, ar + '.npy') for ar in ('flows_in', 'B1', 'B2', 'targets', 'train_mask',
                                                                'test_mask', 'G_undir', 'last_nodes', 'target_nodes')]
-    G_undir = nx.readwrite.read_adjlist(file_paths[6])
+    G_undir = nx.readwrite.gpickle.read_gpickle(file_paths[6][:-4] + '.pkl')
     remap = {node: int(node) for node in G_undir.nodes}
     G_undir = nx.relabel_nodes(G_undir, remap)
-
+    # print(B_matrices[0][10])
     return np.load(file_paths[0]), [np.load(p) for p in file_paths[1:3]], np.load(file_paths[3]), \
            np.load(file_paths[4]), np.load(file_paths[5]), G_undir, np.load(file_paths[7]), np.load(file_paths[8])
 
