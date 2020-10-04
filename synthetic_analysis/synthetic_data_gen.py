@@ -248,15 +248,14 @@ def path_dataset_1hop(G_undir, E, edge_to_idx, paths, max_degree):
     targets = np.array(
         [neighborhood_to_onehot(neighborhood(G_undir, prefix[-1]), suffix, max_degree) for prefix, suffix in
          zip(prefixes, suffixes_1hop)])
-    print(len([p for p in paths if len(p) != len(set(p))]))
-    print(prefixes[0], last_nodes[0])
-    raise Exception
-
-
-    print(prefixes[5], last_nodes[5])
-    # print(E)
-    print([E[x] for x in np.where(prefix_flows[5] != 0)[0]])
-    print()
+    # print(len([p for p in paths if len(p) != len(set(p))]))
+    # print(prefixes[0], last_nodes[0])
+    #
+    #
+    # print(prefixes[5], last_nodes[5])
+    # # print(E)
+    # print([E[x] for x in np.where(prefix_flows[5] != 0)[0]])
+    # print()
     return prefix_flows, targets, last_nodes, suffixes_1hop
 
 def path_dataset_2hop(G_undir, E, edge_to_idx, paths, max_degree):
