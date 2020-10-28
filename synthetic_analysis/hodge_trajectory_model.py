@@ -50,8 +50,8 @@ class Hodge_GCN():
 
     def two_target_accuracy(self, shifts, inputs, y, mask, n_nbrs):
         """
-        Computes the ratio of the time the model correctly identifies which of the true target and a random target
-            is correct.
+        Computes the ratio of the time the model correctly identifies which of the true target and a random, different
+            target is correct.
         """
         if type(self.random_targets) != onp.ndarray:
             self.random_targets = onp.random.randint(0, high=n_nbrs, size=inputs[1].shape[0])
@@ -254,6 +254,7 @@ class Hodge_GCN():
         n_batches = n_train_samples // self.batch_size
 
         batch_mask = ''
+
 
         @jit
         def gradient_step(weights, inputs, y):

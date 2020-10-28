@@ -2,6 +2,18 @@ import numpy as np
 import networkx as nx
 from scipy.spatial import Delaunay
 import os
+import matplotlib.pyplot as plt
+
+def color_faces(G, V, coords, faces, filename='graph_faces.pdf'):
+    """
+    Saves a plot of the graph, with faces colored in
+    """
+    for f in np.array(faces):
+        plt.gca().add_patch(plt.Polygon(coords[f], color='green'))
+    nx.draw_networkx(G, with_labels=False,
+                      width=0.3,
+                      node_size=3, pos=dict(zip(V, coords)))
+    plt.savefig(filename)
 
 def random_SC_graph(n, holes=True):
     """
@@ -42,18 +54,24 @@ def random_SC_graph(n, holes=True):
         E.append((a,c))
 
     V = np.array(G.nodes)
-    E = list(sorted(E))
+    E = np.array(sorted(set(E)))
 
     for e in E:
         G.add_edge(*e)
 
 
-    edge_to_idx = {E[i]: i for i in range(len(E))}
+    edge_to_idx = {tuple(E[i]): i for i in range(len(E))}
     print('Average degree:', np.average([G.degree[node] for node in range(n)]))
     print('Nodes:', len(V), 'Edges:', len(E))
+
+
+    # verify that B2 is generated correctly
+    #
+    # color_faces(G, V, coords, faces_B2, filename='graph_faces_B2.pdf')
+    # raise Exception
     return G, V, E, faces, edge_to_idx, coords, valid_idxs
 
-def incidience_matrices(G, V, E, faces):
+def incidence_matrices(G, V, E, faces, edge_to_idx):
     """
     Returns incidence matrices B1 and B2
 
@@ -64,24 +82,45 @@ def incidience_matrices(G, V, E, faces):
 
     Returns B1 (|V| x |E|) and B2 (|E| x |faces|)
     B1[i][j]: -1 if node is is tail of edge j, 1 if node is head of edge j, else 0 (tail -> head) (smaller -> larger)
-    B2[i][j]: 1 if edge i appears sorted in edge j, -1 if edge i appears reversed in face j, else 0; given faces with sorted node order
+    B2[i][j]: 1 if edge i appears sorted in face j, -1 if edge i appears reversed in face j, else 0; given faces with sorted node order
     """
     B1 = np.array(nx.incidence_matrix(G, nodelist=V, edgelist=E, oriented=True).todense())
     B2 = np.zeros([len(E),len(faces)])
 
-    for f_idx, face in enumerate(faces):
-        for e_idx, edge in enumerate(E):
-            [tail, head] = sorted(edge)
+    for f_idx, face in enumerate(faces): # face is sorted
+        edges = [face[:-1], face[1:], [face[0], face[2]]]
+        e_idxs = [edge_to_idx[tuple(e)] for e in edges]
 
-            if np.in1d(edge, face).all(): # if edge in face
-                [a, b, c] = face
-                if (tail == a and head == b) or \
-                    (tail == b and head == c) or \
-                    (tail == c and head == a):
-                    B2[e_idx, f_idx] = 1
-                else:
-                    B2[e_idx, f_idx] = -1
+        B2[e_idxs[:-1], f_idx] = 1
+        B2[e_idxs[-1], f_idx] = -1
     return B1, B2
+
+    # for f_idx, face in enumerate(faces):
+    #     [a, b, c] = face
+    #     for e_idx, edge in enumerate(E):
+    #         [tail, head] = sorted(edge)
+    #         if np.in1d(edge, face).all(): # if edge in face
+    #             if (tail == a and head == b) or \
+    #                 (tail == b and head == c):
+    #                 B2[e_idx, f_idx] = 1
+    #             else:
+    #                 B2[e_idx, f_idx] = -1
+    # return B1, B2
+
+def faces_from_B2(B2, E):
+    """
+    Given a B2 matrix, returns the list of faces.
+    """
+    faces_B2 = []
+    for j in range(B2.shape[1]):
+        edge_idxs = np.where(B2[:, j] != 0)
+        edges = E[edge_idxs]
+        nodes = set()
+        for e in edges:
+            for n in e:
+                nodes.add(n)
+        faces_B2.append(tuple(sorted(nodes)))
+    return faces_B2
 
 def generate_random_walks(G, points, valid_idxs, m=1000):
     """
@@ -222,6 +261,7 @@ def flow_to_path(flow, E, last_node):
         edges.remove(next_edge)
         cur_node = next_edge[0]
 
+    path[0] = int(path[0])
     return path[::-1]
 
 def path_to_flow(path, edge_to_idx, m):
@@ -283,10 +323,16 @@ def generate_dataset(n, m, folder, holes=True):
     # generate graph
     G, V, E, faces, edge_to_idx, coords, valid_idxs = random_SC_graph(n, holes=holes)
 
+    # print graph with faces
+    color_faces(G, V, coords, faces, filename='graph_faces_orig_' + folder + '.pdf')
+
     # B1, B2
-    B1, B2 = incidience_matrices(G, V, E, faces)
+    B1, B2 = incidence_matrices(G, V, E, faces, edge_to_idx)
     G_undir, paths = generate_random_walks(G, coords, valid_idxs, m=m)
     rev_paths = [path[::-1] for path in paths]
+
+    # verify B2
+    color_faces(G, V, coords, faces_from_B2(B2, E), filename='graph_faces_B2_' + folder + '.pdf')
 
     # train / test masks
     train_mask = np.asarray([1] * int(len(paths) * 0.8) + [0] * int(len(paths) * 0.2))

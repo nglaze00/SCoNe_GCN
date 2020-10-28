@@ -29,7 +29,8 @@ Examples:
         -make a dataset with holes, save with folder suffix holes (just stop the program once training starts if you just want to make a new dataset)
     python3 trajectory_analysis.py load_data 0 -holes 0 -data_folder_suffix no_holes -model_name tanh_no_holes -multi_graph holes
         -create a dataset using folder suffix no_holes, train a model over it using default settings, and test it over the graph with data folder suffix holes
-Results:
+
+Results: OLD
 
 -hidden_layers = [(3,16),(3,16),(3,16)], learning rate = 0.001, epochs = 1000
     standard train/test splits:
@@ -243,7 +244,7 @@ def hodge_parallel(weights, S0, S1, Bcond, flows):
     return logits - logsumexp(logits)
 
 
-def data_setup(hops=(1,), load=True, folder_suffix='working'):
+def data_setup(hops=(1,), load=True, folder_suffix='schaub'):
     """
     Imports and sets up flow, target, and shift matrices for model training. Supports generating data for multiple hops
         at once
@@ -262,7 +263,7 @@ def data_setup(hops=(1,), load=True, folder_suffix='working'):
     if not load:
         # Generate data
         generate_dataset(400, 1000, folder=folder_suffix, holes=HYPERPARAMS['holes'])
-        raise Exception
+        raise Exception('Data generation done')
     for h in hops:
         # Load data
         folder = 'trajectory_data_' + str(h) + 'hop_' + folder_suffix
@@ -294,8 +295,7 @@ def data_setup(hops=(1,), load=True, folder_suffix='working'):
 
     # set up neighborhood data
     last_nodes = inputs_all[0][1]
-    print(last_nodes[0])
-    print(sum(train_mask) + sum(test_mask))
+
     max_degree = max(G_undir.degree, key=lambda x: x[1])[1]
     nbrhoods_dict = {node: onp.array(list(map(int, G_undir[node]))) for node in
                      map(int, sorted(G_undir.nodes))}
@@ -373,7 +373,7 @@ def train_model():
         print(markov.test(prefixes_test, target_nodes_2hop_test, 2))
         print(markov.test_2_target(prefixes_test, target_nodes_1hop_test))
 
-        raise Exception
+        # raise Exception
 
         # reversed test paths
         rev_paths = [path[::-1] for path in paths]
@@ -469,11 +469,13 @@ def train_model():
         onp.save('models/' + HYPERPARAMS['model_name'], hodge.weights)
 
     if HYPERPARAMS['reverse']:
+
         rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
-            onp.load('trajectory_data_1hop_working/rev_flows_in.npy'), onp.load('trajectory_data_1hop_working/rev_targets.npy'), \
-            onp.load('trajectory_data_2hop_working/rev_targets.npy'), onp.load('trajectory_data_1hop_working/rev_last_nodes.npy')
+            onp.load('trajectory_data_1hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_flows_in.npy'), onp.load('trajectory_data_1hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_targets.npy'), \
+            onp.load('trajectory_data_2hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_targets.npy'), onp.load('trajectory_data_1hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_last_nodes.npy')
         rev_n_nbrs = [len(neighborhood(G_undir, n)) for n in rev_last_nodes]
         print('Reversed ', end='')
+        print(inputs_1hop[-1].shape, rev_flows_in.shape, last_nodes.shape, rev_last_nodes.shape, sum(test_mask))
         hodge.test([inputs_1hop[0], rev_last_nodes, rev_flows_in], rev_targets_1hop, test_mask, rev_n_nbrs)
 
     if HYPERPARAMS['multi_graph'] != '':

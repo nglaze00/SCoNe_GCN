@@ -92,13 +92,15 @@ class Markov_Model():
         :param paths: paths over G
         """
 
-        for prefix in self.n_hop_paths(G, self.order - 1):
-            self.weights[tuple(prefix)] = {n: 0 for n in self.neighborhood(G, prefix[-1])}
+        for prefix in self.n_hop_paths(G, self.order):
+            print(prefix)
+            self.weights[tuple(prefix)] = {n: 0 for n in G[prefix[-1]].keys()}
 
         for path in paths:
-            if len(path) >= self.order + 1:
-                for i in range(self.order - 1, len(path) - 1):
-                    prefix = tuple(path[i-(self.order-1):i+1])
+            if len(path) > self.order: # [1 2 3 4], order = 2; iterate over [1 2 3], [2 3 4] ( [0, 2) )
+                for i in range(len(path) - self.order):
+                    prefix = tuple(path[i:i+self.order+1])
+                    print(prefix, self.weights[prefix])
                     self.weights[prefix][path[i+1]] += 1
         for prefix, dist in self.weights.items():
             total_samples = sum(dist.values())
