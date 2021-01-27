@@ -1,26 +1,39 @@
 """
-Usage:
-python3 trajectory_experiments.py ...
-Argument defaults:
+Docs:
+
+Generate a synthetic graph, with holes in upper left and lower right regions, + paths over the graph:
+    python3 synthetic_data_gen.py
+    -Edit main of synthetic_data_gen.py to change graph size / # of paths
+
+Train a SCoNe model on a dataset:
+    python3 trajectory_experiments.py [args]
+
+    Command to run standard training / experiment with defaults:
+        python3 trajectory_experiments.py -data_folder_suffix suffix_here
+
+
+Arguments + default values for trajectory_experiments.py:
    'epochs': 1000; # of training epochs
    'learning_rate': 0.001; starting learning rate
    'weight_decay': 0.00005; ridge regularization constant
    'batch_size': 100; # of samples per batch (randomly selected)
+   'reverse': 0;  if 1, also compute accuracy over the test set, but reversed (Reverse experiment)
+   'data_folder_suffix': 'schaub2'; set suffix of folder to import data from (trajectory_data_Nhop_suffix)
+   'regional': 0; if 1, trains a model over upper graph region and tests over lower region (Transfer experiment)
+
    'hidden_layers': 3_16_3_16_3_16 (corresponds to [(3, 16), (3, 16), (3, 16)]; each tuple is a layer (# of shift matrices, # of units in layer) )
    'describe': 0; ask for a description of this test, print the description at the end
-   'reverse': 0;  also compute accuracy over the test set, but reversed
    'load_data': 1; if 0, generate new data; if 1, load data from folder set in data_folder_suffix
    'load_model': 0; if 0, train a new model, if 1, load model from file model_name.npy. Must set hidden_layers regardless of choice
    'markov': 0; include tests using a 2nd-order Markov model
    'model_name': 'model'; name of model to use when load_model = 1
-   'regional': 0; if 1 and load_model = 1, trains a model over upper graph region and tests over lower region
+
    'flip_edges': 0; if 1, flips orientation of a random subset of edges. with tanh activation, should perform equally
-   'data_folder_suffix': 'working'; set suffix of folder to import data from (trajectory_data_Nhop_suffix)
+
    'multi_graph': '': if not '', also tests on paths over the graph with the folder suffix set here
    'holes': 1; if generation new data, sets whether the graph should have holes
-   }
 
-Examples:
+More examples:
     python3 trajectory_experiments.py -model_name tanh -reverse 1 -epochs 1100 -load_model 1 -multi_graph no_holes
         -loads model tanh.npy from models folder, tests it over reversed test set, and also tests over another graph saved in trajectory_data_Nhop_no_holes
     python3 trajectory_experiments.py load_data 0 -holes 0 -model_name tanh_no_holes -hidden_layers [(3, 32), (3,16)] -data_folder_suffix no_holes2
@@ -45,10 +58,6 @@ except Exception:
     from synthetic_data_gen import load_dataset, generate_dataset, neighborhood, conditional_incidence_matrix, flow_to_path
     from scone_trajectory_model import Scone_GCN
     from markov_model import Markov_Model
-
-
-
-
 
 def hyperparams():
     """
@@ -297,7 +306,7 @@ def train_model():
         print(markov.test(mixed_prefixes_test, mixed_target_nodes_1hop_test, 1))
         print(markov.test(mixed_prefixes_test, mixed_target_nodes_2hop_test, 2))
 
-        # train on middle, test on middle todo
+        # train on middle, test on middle
         mid_train_mask = [i % 3 == 0 and train_mask[i] == 1 for i in range(len(train_mask))]
         mid_test_mask = [i % 3 == 0 and test_mask[i] == 1 for i in range(len(test_mask))]
 

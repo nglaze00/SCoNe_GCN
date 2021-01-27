@@ -505,5 +505,7 @@ def to_rnn_format(folder, prefixes_file=None):
     f.write(build_content(train_paths_trans) + build_content(test_paths_trans))
     f.close()
 
-# generate_dataset(400, 1000, None)
-# to_rnn_format('trajectory_data_1hop_schaub2', prefixes_file=None)
+if __name__ == '__main__':
+    folder_suffix = 'folder_suffix_here'
+    generate_dataset(400, 1000, folder_suffix)
+    # to_rnn_format('trajectory_data_1hop_' + folder_suffix, prefixes_file=None)
