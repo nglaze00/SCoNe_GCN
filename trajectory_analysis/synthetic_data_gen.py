@@ -1,3 +1,38 @@
+"""
+Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
+
+Synthetic dataset generation; to generate a dataset, edit the function call in __main__ and run this file. The dataset
+    will be saved into two folders: trajectory_data_1hop_ + your_folder_suffix, and trajectory_data_2hop_ + suffix.
+
+If you want to use your own data, it'd be helpful to read this, and generate a synthetic one to better understand the
+    format.
+
+Description of dataset; your dataset should have all of these files:
+trajectory_data_1hop/
+    -B1.npy: B1 incidence matrix (nodes-edges); generate with incidence_matrices()
+    -B2.npy: B2 incidence matrix (edges-faces); generate with incidence_matrices()
+    -flows_in.npy: array of flows, each with dimension (n_edges) representing each path; 1 if this edge is traversed
+        "forward" (lower # node -> higher # node), -1 if traversed in "reverse", 0 if not traversed
+        -convert path (list of nodes) to flow with path_to_flow()
+    -G_undir.pkl: undirected networkx graph representing the dataset's graphs
+    -last_nodes.npy: the last node in each trajectory prefix; we forecast the step from this node to one of its neighbors
+    -rev_flows_in.npy: same as flows_in, but reversed path direction -- (1,2,3) becomes (3,2,1)
+    -rev_last_nodes.npy: same as last_nodes, but for reversed paths
+    -rev_target_nodes.npy: same, for reversed paths
+    -rev_targets.npy: same as targets, for reversed paths
+    -target_nodes.npy: the correct suffix node for each trajectory; we're trying to predict this one
+    -targets: for each path, a vector of dimension (max_degree) representing which neighbor is the correct suffix
+        -neighbors are ordered by increasing node number
+    -test_mask.npy: vector of length n_trajectories; 1 if this trajectory is in the test set, else 0
+    -train_mask.npy: same, for training set
+trajectory_data_2hop/
+    -Pretty much the same, but for predicting the second "hop" after the known prefix. My code doesn't actually do any
+    multi-hop predictions atm, so you can just copy-paste your 1hop data to the 2-hop folder, and it should work fine.
+
+"""
+
+
+
 import numpy as np
 import networkx as nx
 from scipy.spatial import Delaunay
@@ -28,7 +63,6 @@ def color_faces(G, V, coords, faces, filename='graph_faces.pdf', paths=None):
     """
     Saves a plot of the graph, with faces colored in
     """
-    # if not paths:
     for f in np.array(faces):
         plt.gca().add_patch(plt.Polygon(coords[f], facecolor=(173/256,216/256,240/256, 0.4), ec='k', linewidth=0.3))
 
@@ -40,14 +74,8 @@ def color_faces(G, V, coords, faces, filename='graph_faces.pdf', paths=None):
         coords_dict = {i: xy for i, xy in enumerate(coords)}
         for path in paths:
             edges = [(path[i], path[i+1]) for i in range(len(path) - 1)]
-            print(edges)
-            # nx.draw_networkx_edges(G.to_directed(), pos=coords_dict, edgelist=edges[:1], edge_color='green', width=1.5,
-            #                        arrows=True, arrowsize=7, node_size=3)
             nx.draw_networkx_edges(G.to_directed(), pos=coords_dict, edgelist=edges, edge_color='black', width=1.5,
                                    arrows=True, arrowsize=7, node_size=3)
-            # nx.draw_networkx_edges(G.to_directed(), pos=coords_dict, edgelist=edges[-1:], edge_color='red', width=1.5,
-            #                        arrows=True, arrowsize=7, node_size=3)
-
     plt.savefig(filename)
 
 def random_SC_graph(n, holes=True):
@@ -105,11 +133,6 @@ def random_SC_graph(n, holes=True):
     print('Average degree:', np.average([G.degree[node] for node in range(n)]))
     print('Nodes:', len(V), 'Edges:', len(E))
 
-
-    # verify that B2 is generated correctly
-    #
-    # color_faces(G, V, coords, faces_B2, filename='graph_faces_B2.pdf')
-    # raise Exception
     return G, V, E, faces, edge_to_idx, coords, valid_idxs
 
 def incidence_matrices(G, V, E, faces, edge_to_idx):
@@ -135,18 +158,6 @@ def incidence_matrices(G, V, E, faces, edge_to_idx):
         B2[e_idxs[:-1], f_idx] = 1
         B2[e_idxs[-1], f_idx] = -1
     return B1, B2
-
-    # for f_idx, face in enumerate(faces):
-    #     [a, b, c] = face
-    #     for e_idx, edge in enumerate(E):
-    #         [tail, head] = sorted(edge)
-    #         if np.in1d(edge, face).all(): # if edge in face
-    #             if (tail == a and head == b) or \
-    #                 (tail == b and head == c):
-    #                 B2[e_idx, f_idx] = 1
-    #             else:
-    #                 B2[e_idx, f_idx] = -1
-    # return B1, B2
 
 def faces_from_B2(B2, E):
     """
@@ -364,9 +375,6 @@ def generate_dataset(n, m, folder, holes=True):
     # generate graph
     G, V, E, faces, edge_to_idx, coords, valid_idxs = random_SC_graph(n, holes=holes)
 
-    # print graph with faces
-    # color_faces(G, V, coords, faces, filename='graph_faces_orig_' + folder + '.pdf')
-
 
 
     # B1, B2
@@ -374,11 +382,10 @@ def generate_dataset(n, m, folder, holes=True):
     G_undir, paths = generate_random_walks(G, coords, valid_idxs, m=m)
     rev_paths = [path[::-1] for path in paths]
 
+    # Save image of graph to file
     color_faces(G.to_undirected(), V, coords, faces, filename='synthetic_graph_faces_paths.pdf',
                 paths=[paths[11], paths[7][:-1], paths[18][:-1]])
-    raise Exception
-    # verify B2
-    # color_faces(G, V, coords, faces_from_B2(B2, E), filename='graph_faces_B2_' + folder + '.pdf')
+
 
     # train / test masks
     train_mask = np.asarray([1] * int(len(paths) * 0.8) + [0] * int(len(paths) * 0.2))

@@ -1,3 +1,12 @@
+"""
+Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
+
+Projection model described in this paper: https://arxiv.org/pdf/1807.05044.pdf
+
+To use, change :folder_suffix: to the suffix used by your dataset and run this file.
+"""
+folder_suffix = 'schaub2'
+
 import networkx as nx
 import numpy as np
 from scipy.linalg import null_space
@@ -145,7 +154,7 @@ def synthetic_dataset(folder="trajectory_data_1hop_schaub2"):
     """
     Load synthetic dataset from folder
     """
-    X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_dataset("../synthetic_analysis/" + folder)
+    X, B_matrices, y, train_mask, test_mask, G_undir, last_nodes, target_nodes = load_dataset(folder)
 
     edge_to_idx = {edge: i for i, edge in enumerate(G_undir.edges)}
     idx_to_edge = {i: edge for i, edge in enumerate(G_undir.edges)}
@@ -194,40 +203,34 @@ def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes
 # test dataset
 # print(eval_dataset(*test_dataset()))
 
-folder_suffix = 'schaub2'
 
-folder = '../synthetic_analysis/trajectory_data_1hop_' + folder_suffix
+folder = 'trajectory_data_1hop_' + folder_suffix
 
 # synthetic dataset
 G, (B1, B2), flows, last_nodes, target_nodes, y, edge_to_idx, idx_to_edge, train_mask, test_mask = synthetic_dataset(folder='trajectory_data_1hop_' + folder_suffix)
 
 max_deg = np.max([len(G[i]) for i in G.nodes])
 
-print(last_nodes.shape, target_nodes.shape, y.shape, train_mask.shape, test_mask.shape)
 
 print('Avg degree:', 2 * len(G.edges) / len(G.nodes))
-print(flows.shape, y.shape)
 
-# All points
-# print(eval_dataset(G, None, last_nodes, y.T, edge_to_idx, idx_to_edge, target_nodes, B1, B2, flows=flows.T))
-#
 # # Standard test set
 last_nodes_test, y_test, target_nodes_test, flows_test = last_nodes[test_mask == 1], \
                                                          y[test_mask == 1].T, target_nodes[test_mask == 1], \
                                                          flows[test_mask == 1].T
 
-print(eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, flows=flows_test))
+print('Standard experiment loss / acc:', eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, flows=flows_test))
 
 # Reversed
 flows_rev, last_nodes_rev, target_nodes_rev, targets_rev = tuple(map(np.load, (folder + '/rev_flows_in.npy', folder + '/rev_last_nodes.npy', folder + '/rev_target_nodes.npy', folder + '/rev_targets.npy')))
-print(eval_dataset(G, None, last_nodes_rev[test_mask == 1], targets_rev.reshape(targets_rev.shape[:-1])[test_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes_rev[test_mask == 1], B1, B2, flows=flows_rev.reshape(flows_rev.shape[:-1])[test_mask == 1].T))
+print('Reverse experiment loss / acc:', eval_dataset(G, None, last_nodes_rev[test_mask == 1], targets_rev.reshape(targets_rev.shape[:-1])[test_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes_rev[test_mask == 1], B1, B2, flows=flows_rev.reshape(flows_rev.shape[:-1])[test_mask == 1].T))
 
 
 # 2-target
-print(eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, flows=flows_test, two_target=True))
+print('2-target acc:', eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, flows=flows_test, two_target=True)[1])
 
-# regional
+# Transfer
 regional_mask = np.array([1 if i % 3 == 2 else 0 for i in range(y.shape[0])])
-print(eval_dataset(G, None, last_nodes[regional_mask == 1], y[regional_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes[regional_mask == 1], B1, B2, flows=flows[regional_mask == 1].T, max_deg=max_deg))
+print('Transfer experiment loss / acc:', eval_dataset(G, None, last_nodes[regional_mask == 1], y[regional_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes[regional_mask == 1], B1, B2, flows=flows[regional_mask == 1].T, max_deg=max_deg))
 
 

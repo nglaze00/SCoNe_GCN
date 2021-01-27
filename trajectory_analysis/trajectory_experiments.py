@@ -1,5 +1,7 @@
 """
-Docs:
+Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
+
+This is where you actually train models. See below for docs:
 
 Generate a synthetic graph, with holes in upper left and lower right regions, + paths over the graph:
     python3 synthetic_data_gen.py
@@ -22,7 +24,7 @@ Arguments + default values for trajectory_experiments.py:
    'regional': 0; if 1, trains a model over upper graph region and tests over lower region (Transfer experiment)
 
    'hidden_layers': 3_16_3_16_3_16 (corresponds to [(3, 16), (3, 16), (3, 16)]; each tuple is a layer (# of shift matrices, # of units in layer) )
-   'describe': 0; ask for a description of this test, print the description at the end
+   'describe': 1; describes the dataset being used
    'load_data': 1; if 0, generate new data; if 1, load data from folder set in data_folder_suffix
    'load_model': 0; if 0, train a new model, if 1, load model from file model_name.npy. Must set hidden_layers regardless of choice
    'markov': 0; include tests using a 2nd-order Markov model
@@ -71,7 +73,7 @@ def hyperparams():
                    'weight_decay': 0.00005,
                    'batch_size': 100,
                    'hidden_layers': [(3, 16), (3, 16), (3, 16)],
-                   'describe': 0,
+                   'describe': 1,
                    'reverse': 0,
                    'load_data': 1,
                    'load_model': 0,
@@ -232,11 +234,6 @@ def train_model():
 
     last_nodes = inputs_1hop[1]
 
-
-
-    if HYPERPARAMS['describe'] == 1:
-        desc = input("Describe this test: ")
-
     in_axes = tuple([None, None, None, None, 0, 0])
 
     # Train Markov model
@@ -352,6 +349,19 @@ def train_model():
 
     scone.setup(scone_func, HYPERPARAMS['hidden_layers'], shifts, inputs_1hop, y_1hop, in_axes, train_mask)
 
+    if HYPERPARAMS['regional']:
+        # Train either on upper region only or all data (synthetic dataset)
+        # 0: middle, 1: top, 2: bottom
+        train_mask = np.array([1 if i % 3 == 1 else 0 for i in range(len(y_1hop))])
+        test_mask = np.array([1 if i % 3 == 2 else 0 for i in range(len(y_1hop))])
+
+    # describe dataset
+    if HYPERPARAMS['describe'] == 1:
+        print('Graph nodes: {}, edges: {}, avg degree: {}'.format(len(G_undir.nodes), len(G_undir.edges),
+                                                                  np.average([G_undir.degree[node] for node in
+                                                                              G_undir.nodes])))
+        print('Training paths: {}, Test paths: {}'.format(train_mask.sum(), test_mask.sum()))
+
     # load a model from file + train it more
     if HYPERPARAMS['load_model']:
         scone.weights = onp.load('models/' + HYPERPARAMS['model_name'] + '.npy', allow_pickle=True)
@@ -369,13 +379,6 @@ def train_model():
 
     else:
 
-        if HYPERPARAMS['regional']:
-            # Train either on upper region only or all data (synthetic dataset)
-            # 0: middle, 1: top, 2: bottom
-            train_mask = np.array([1 if i % 3 == 1 else 0 for i in range(len(y_1hop))])
-            test_mask = np.array([1 if i % 3 == 2 else 0 for i in range(len(y_1hop))])
-
-
         train_loss, train_acc, test_loss, test_acc = scone.train(inputs_1hop, y_1hop, train_mask, test_mask, n_nbrs)
 
         try:
@@ -384,28 +387,30 @@ def train_model():
             pass
         onp.save('models/' + HYPERPARAMS['model_name'], scone.weights)
 
+    # standard experiment
+    print('standard test set:')
+    train_2target, test_2target = scone.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
+                                  scone.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
+
+    scone.test(inputs_1hop, y_1hop, test_mask, n_nbrs)
+    print('2-target accs:', train_2target, test_2target)
+
+
     if HYPERPARAMS['reverse']:
         # reverse direction of test flows
         rev_flows_in, rev_targets_1hop, rev_targets_2hop, rev_last_nodes = \
             onp.load('trajectory_data_1hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_flows_in.npy'), onp.load('trajectory_data_1hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_targets.npy'), \
             onp.load('trajectory_data_2hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_targets.npy'), onp.load('trajectory_data_1hop_' + HYPERPARAMS['data_folder_suffix'] + '/rev_last_nodes.npy')
         rev_n_nbrs = [len(neighborhood(G_undir, n)) for n in rev_last_nodes]
-        print('Reversed ', end='')
-        print(inputs_1hop[-1].shape, rev_flows_in.shape, last_nodes.shape, rev_last_nodes.shape, sum(test_mask))
+        print('Reverse experiment:')
         scone.test([inputs_1hop[0], rev_last_nodes, rev_flows_in], rev_targets_1hop, test_mask, rev_n_nbrs)
 
-    # standard experiment
-    print('standard test set:')
-    train_2target, test_2target = scone.two_target_accuracy(shifts, inputs_1hop, y_1hop, train_mask, n_nbrs), \
-                                  scone.two_target_accuracy(shifts, inputs_1hop, y_1hop, test_mask, n_nbrs)
 
-    print('2-target accs:', train_2target, test_2target)
-    print('Multi hop accs:',
-          scone.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods,
-                                        E_lookup, last_nodes, prefixes, 2))
 
-    if HYPERPARAMS['describe'] == 1:
-        print(desc)
+    # print('Multi hop accs:',
+    #       scone.multi_hop_accuracy_dist(shifts, inputs_1hop, target_nodes_all[1], [train_mask, test_mask], nbrhoods,
+    #                                     E_lookup, last_nodes, prefixes, 2))
+
 
 if __name__ == '__main__':
     train_model()

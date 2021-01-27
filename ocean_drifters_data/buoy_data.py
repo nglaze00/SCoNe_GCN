@@ -1,3 +1,9 @@
+"""
+Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
+
+Code for converting ocean drifter data from Schaub's format to ours.
+"""
+
 import h5py
 from trajectory_analysis.synthetic_data_gen import *
 

@@ -1,3 +1,9 @@
+"""
+Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
+
+code for building, training, and testing a SCoNe model. No need to mess with this, should work as is.
+"""
+
 import numpy as onp
 import jax.numpy as np
 from jax import grad, jit, vmap
