@@ -3,6 +3,7 @@ Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
 
 Synthetic dataset generation; to generate a dataset, edit the function call in __main__ and run this file. The dataset
     will be saved into two folders: trajectory_data_1hop_ + your_folder_suffix, and trajectory_data_2hop_ + suffix.
+    -Generating a dataset also generates a pdf with a cool pic of your graph!
 
 If you want to use your own data, it'd be helpful to read this, and generate a synthetic one to better understand the
     format.

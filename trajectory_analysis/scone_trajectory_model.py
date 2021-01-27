@@ -4,6 +4,7 @@ Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
 code for building, training, and testing a SCoNe model. No need to mess with this, should work as is.
 """
 
+import os
 import numpy as onp
 import jax.numpy as np
 from jax import grad, jit, vmap
@@ -321,12 +322,17 @@ class Scone_GCN():
         )
 
         # Save gradient magnitudes to file
-        plt.plot(non_faces_all)
-        plt.plot(faces_all)
-        plt.legend(['non-face gradients', 'face gradients'])
-        plt.savefig('grads/grads_over_training.png')
-        np.save('grads/non_faces_grads_tanh.npy', non_faces_all)
-        np.save('grads/faces_grads_tanh.npy', faces_all)
+        # plt.plot(non_faces_all)
+        # plt.plot(faces_all)
+        # plt.legend(['non-face gradients', 'face gradients'])
+        # try:
+        #     os.mkdir('grads')
+        #     plt.savefig('grads/grads_over_training.png')
+        #     np.save('grads/non_faces_grads_tanh.npy', non_faces_all)
+        #     np.save('grads/faces_grads_tanh.npy', faces_all)
+        # except:
+        #     pass
+
 
 
         return train_loss, train_acc, test_loss, test_acc

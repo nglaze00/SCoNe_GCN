@@ -10,8 +10,13 @@ Generate a synthetic graph, with holes in upper left and lower right regions, + 
 Train a SCoNe model on a dataset:
     python3 trajectory_experiments.py [args]
 
-    Command to run standard training / experiment with defaults:
+    -Command to run standard training / experiment with defaults:
         python3 trajectory_experiments.py -data_folder_suffix suffix_here
+
+    -The default hyperparameters should work pretty well on the default graph size. You'll probably have to play with
+        them rate for other graphs, though.
+
+
 
 
 Arguments + default values for trajectory_experiments.py:
