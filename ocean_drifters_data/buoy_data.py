@@ -100,8 +100,8 @@ print('Test samples:', sum(test_mask))
 
 ### Save datasets
 
-folder_1hop = '../synthetic_analysis/trajectory_data_1hop_' + dataset_folder
-folder_2hop = '../synthetic_analysis/trajectory_data_2hop_' + dataset_folder
+folder_1hop = '../trajectory_analysis/trajectory_data_1hop_' + dataset_folder
+folder_2hop = '../trajectory_analysis/trajectory_data_2hop_' + dataset_folder
 
 try:
     os.mkdir(folder_1hop)

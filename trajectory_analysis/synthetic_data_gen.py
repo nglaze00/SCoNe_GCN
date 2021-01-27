@@ -395,6 +395,8 @@ def generate_dataset(n, m, folder, holes=True):
 
 
     max_degree = np.max([deg for n, deg in G_undir.degree()])
+    print(max_degree)
+
     # forward
     prefix_flows_1hop, targets_1hop, last_nodes_1hop, suffixes_1hop, \
         prefix_flows_2hop, targets_2hop, last_nodes_2hop, suffixes_2hop = path_dataset(G_undir, E, edge_to_idx, paths, max_degree)

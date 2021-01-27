@@ -5,7 +5,7 @@ Projection model described in this paper: https://arxiv.org/pdf/1807.05044.pdf
 
 To use, change :folder_suffix: to the suffix used by your dataset and run this file.
 """
-folder_suffix = 'schaub2'
+folder_suffix = 'folder_suffix_here'
 
 import networkx as nx
 import numpy as np
@@ -161,7 +161,7 @@ def synthetic_dataset(folder="trajectory_data_1hop_schaub2"):
 
     return G_undir, B_matrices, X.reshape(X.shape[:-1]), last_nodes, target_nodes, y.reshape(y.shape[:-1]), edge_to_idx, idx_to_edge, train_mask, test_mask
 
-def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes, B1, B2, flows=None, two_target=False, two_hop=False, target_nodes_2hop=None, max_deg=None):
+def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes, B1, B2, max_deg, flows=None, two_target=False, target_nodes_2hop=None):
     """
     Runs experiment on given dataset
     """
@@ -180,8 +180,6 @@ def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes
 
     n_nbrs = np.array([len(nbrhd) for nbrhd in nbrhoods])
 
-    if not max_deg:
-        max_deg = np.max(n_nbrs)
 
     # project flows
     preds = project_flows(V, B1, flows, last_nodes, nbrhoods, max_deg)
@@ -191,11 +189,6 @@ def eval_dataset(G, paths, last_nodes, y, edge_to_idx, idx_to_edge, target_nodes
     ce = loss(y, preds)
     if two_target:
         acc = accuracy_2target(y, preds, n_nbrs)
-    elif two_hop:
-        # nbrhoods_by_node[node] = nbrhood of node
-        nbrhoods_by_node = [list(sorted(G[node].keys())) for node in range(len(G.nodes))]
-
-        acc = multi_hop_accuracy_dist(V, flows.T, target_nodes_2hop, nbrhoods_by_node, nbrhoods, edge_to_idx, last_nodes, 2)
     else:
         acc = accuracy(y, preds)
     return ce, acc
@@ -219,18 +212,18 @@ last_nodes_test, y_test, target_nodes_test, flows_test = last_nodes[test_mask ==
                                                          y[test_mask == 1].T, target_nodes[test_mask == 1], \
                                                          flows[test_mask == 1].T
 
-print('Standard experiment loss / acc:', eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, flows=flows_test))
+print('Standard experiment loss / acc:', eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, max_deg, flows=flows_test))
 
 # Reversed
 flows_rev, last_nodes_rev, target_nodes_rev, targets_rev = tuple(map(np.load, (folder + '/rev_flows_in.npy', folder + '/rev_last_nodes.npy', folder + '/rev_target_nodes.npy', folder + '/rev_targets.npy')))
-print('Reverse experiment loss / acc:', eval_dataset(G, None, last_nodes_rev[test_mask == 1], targets_rev.reshape(targets_rev.shape[:-1])[test_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes_rev[test_mask == 1], B1, B2, flows=flows_rev.reshape(flows_rev.shape[:-1])[test_mask == 1].T))
+print('Reverse experiment loss / acc:', eval_dataset(G, None, last_nodes_rev[test_mask == 1], targets_rev.reshape(targets_rev.shape[:-1])[test_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes_rev[test_mask == 1], B1, B2, max_deg, flows=flows_rev.reshape(flows_rev.shape[:-1])[test_mask == 1].T))
 
 
 # 2-target
-print('2-target acc:', eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, flows=flows_test, two_target=True)[1])
+print('2-target acc:', eval_dataset(G, None, last_nodes_test, y_test, edge_to_idx, idx_to_edge, target_nodes_test, B1, B2, max_deg, flows=flows_test, two_target=True)[1])
 
 # Transfer
 regional_mask = np.array([1 if i % 3 == 2 else 0 for i in range(y.shape[0])])
-print('Transfer experiment loss / acc:', eval_dataset(G, None, last_nodes[regional_mask == 1], y[regional_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes[regional_mask == 1], B1, B2, flows=flows[regional_mask == 1].T, max_deg=max_deg))
+print('Transfer experiment loss / acc:', eval_dataset(G, None, last_nodes[regional_mask == 1], y[regional_mask == 1].T, edge_to_idx, idx_to_edge, target_nodes[regional_mask == 1], B1, B2, max_deg, flows=flows[regional_mask == 1].T))
 
 
