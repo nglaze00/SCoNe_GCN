@@ -516,6 +516,6 @@ def to_rnn_format(folder, prefixes_file=None):
     f.close()
 
 if __name__ == '__main__':
-    folder_suffix = 'folder_suffix_here'
+    folder_suffix = 'synthetic' # make this whatever you want
     generate_dataset(400, 1000, folder_suffix)
     # to_rnn_format('trajectory_data_1hop_' + folder_suffix, prefixes_file=None)

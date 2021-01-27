@@ -7,7 +7,7 @@ Code for converting ocean drifter data from Schaub's format to ours.
 import h5py
 from trajectory_analysis.synthetic_data_gen import *
 
-dataset_folder = 'folder_name_here'
+dataset_folder = 'buoy'
 
 f = h5py.File('dataBuoys.jld2', 'r')
 print(f.keys())

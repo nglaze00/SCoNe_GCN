@@ -5,7 +5,7 @@ Projection model described in this paper: https://arxiv.org/pdf/1807.05044.pdf
 
 To use, change :folder_suffix: to the suffix used by your dataset and run this file.
 """
-folder_suffix = 'folder_suffix_here'
+folder_suffix = 'buoy'
 
 import networkx as nx
 import numpy as np

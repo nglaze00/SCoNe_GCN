@@ -1,58 +1,7 @@
 """
-Code for using a Markov model for path prediction
+Author: Nicholas Glaze, Rice ECE (nkg2 at rice.edu)
 
-1st-order: (handles direction poorly)
-    train accs
-        0.64625
-        0.43375
-    test accs
-        0.585
-        0.355
-    Reversed test accs
-        0.035
-        0.0
-    Mixed train accs
-        0.38375
-        0.14375
-    Mixed test accs
-        0.355
-        0.13
-    Upper region accs
-        0.648
-        0.444
-    Lower region accs
-        0.126
-        0.036
-
-
-2nd-order: (handles direction well)
-    train accs
-        0.70125
-        0.52
-    test accs
-        0.595
-        0.39
-    Reversed test accs
-        0.235
-        0.05
-    Mixed train accs
-        0.6875
-        0.39
-    Mixed test accs
-        0.65
-        0.385
-    Upper region accs
-        0.624
-        0.444
-    Lower region accs
-        0.165
-        0.015
-
-
-
-
-
-
+Code for Markov model class. Don't mess with this, use it through trajectory_experiments.py
 """
 import numpy as np
 import networkx as nx
