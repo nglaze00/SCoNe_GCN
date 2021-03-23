@@ -11,6 +11,6 @@ A convolutional neural network architecture for trajectory prediction on simplic
     * SCoNe: Run [trajectory_experiments.py](trajectory_analysis/trajectory_experiments.py) (with arguments)
     * Projection: Run [projection_model.py](trajectory_analysis/projection_model.py) (see file for more info)
     * Markov: Run [trajectory_experiments.py](trajectory_analysis/trajectory_experiments.py) with arg -markov 1
-    * SNN ([Ebli](https://arxiv.org/pdf/2010.03633.pdf)): Run [trajectory_experiments.py](trajectory_analysis/trajectory_experiments.py) with arg -model 'ebli'
-    * SCCONV ([Bunch](https://arxiv.org/pdf/2012.06010.pdf)): Run [trajectory_experiments.py](trajectory_analysis/trajectory_experiments.py) with arg -model 'bunch'
+    * SNN ([Ebli](https://arxiv.org/pdf/2010.03633.pdf) 2010): Run [trajectory_experiments.py](trajectory_analysis/trajectory_experiments.py) with arg -model 'ebli'
+    * SCCONV ([Bunch](https://arxiv.org/pdf/2012.06010.pdf) 2012): Run [trajectory_experiments.py](trajectory_analysis/trajectory_experiments.py) with arg -model 'bunch'
     
