@@ -14,12 +14,16 @@ Train a SCoNe model on a dataset:
         python3 trajectory_experiments.py -data_folder_suffix suffix_here
 
     -The default hyperparameters should work pretty well on the default graph size. You'll probably have to play with
-        them rate for other graphs, though.
+        them for other graphs, though.
 
 
 
 
 Arguments + default values for trajectory_experiments.py:
+   'model': 'scone'; which model to use, of ('scone', 'ebli', or 'bunch')
+        -'scone': ours
+        -'ebli':  https://arxiv.org/pdf/2010.03633.pdf
+        -'bunch': https://arxiv.org/pdf/2012.06010.pdf
    'epochs': 1000; # of training epochs
    'learning_rate': 0.001; starting learning rate
    'weight_decay': 0.00005; ridge regularization constant
@@ -29,6 +33,7 @@ Arguments + default values for trajectory_experiments.py:
    'regional': 0; if 1, trains a model over upper graph region and tests over lower region (Transfer experiment)
 
    'hidden_layers': 3_16_3_16_3_16 (corresponds to [(3, 16), (3, 16), (3, 16)]; each tuple is a layer (# of shift matrices, # of units in layer) )
+        -'scone' and 'ebli' require 3_#_3_#_ ...; 'bunch' requires 7_#_7_#_ ...
    'describe': 1; describes the dataset being used
    'load_data': 1; if 0, generate new data; if 1, load data from folder set in data_folder_suffix
    'load_model': 0; if 0, train a new model, if 1, load model from file model_name.npy. Must set hidden_layers regardless of choice
@@ -57,14 +62,18 @@ import jax.numpy as np
 from jax.scipy.special import logsumexp
 import numpy as onp
 
+
 try:
+    from trajectory_analysis.bunch_model_matrices import compute_shift_matrices
     from trajectory_analysis.synthetic_data_gen import load_dataset, generate_dataset, neighborhood, conditional_incidence_matrix, flow_to_path
     from trajectory_analysis.scone_trajectory_model import Scone_GCN
     from trajectory_analysis.markov_model import Markov_Model
 except Exception:
+    from bunch_model_matrices import compute_shift_matrices
     from synthetic_data_gen import load_dataset, generate_dataset, neighborhood, conditional_incidence_matrix, flow_to_path
     from scone_trajectory_model import Scone_GCN
     from markov_model import Markov_Model
+
 
 def hyperparams():
     """
@@ -73,7 +82,8 @@ def hyperparams():
     For hidden_layers, input [(3, 8), (3, 8)] as 3_8_3_8
     """
     args = sys.argv
-    hyperparams = {'epochs': 1000,
+    hyperparams = {'model': 'scone',
+                   'epochs': 1000,
                    'learning_rate': 0.001,
                    'weight_decay': 0.00005,
                    'batch_size': 100,
@@ -98,10 +108,12 @@ def hyperparams():
                 hyperparams['hidden_layers'] = []
                 for j in range(0, len(nums), 2):
                     hyperparams['hidden_layers'] += [(nums[j], nums[j + 1])]
-            elif args[i][1:] in ['model_name', 'data_folder_suffix', 'multi_graph']:
+            elif args[i][1:] in ['model_name', 'data_folder_suffix', 'multi_graph', 'model']:
                 hyperparams[args[i][1:]] = str(args[i+1])
             else:
                 hyperparams[args[i][1:]] = float(args[i+1])
+
+
     return hyperparams
 
 HYPERPARAMS = hyperparams()
@@ -118,10 +130,13 @@ def sigmoid(x):
 def tanh(x):
     return np.tanh(x)
 
+def leaky_relu(x):
+    return np.where(x >= 0, x, 0.01 * x)
+
 # SCoNe function
 def scone_func(weights, S_lower, S_upper, Bcond_func, last_node, flow):
     """
-    SCoNe model with variable number of layers
+    Forward pass of the SCoNe model with variable number of layers
     """
     n_layers = (len(weights) - 1) / 3
     assert n_layers % 1 == 0, 'wrong number of weights'
@@ -135,6 +150,58 @@ def scone_func(weights, S_lower, S_upper, Bcond_func, last_node, flow):
 
     logits = Bcond_func(last_node) @ cur_out @ weights[-1]
     return logits - logsumexp(logits)
+
+# Ebli function
+def ebli_func(weights, S_lower, S_upper, Bcond_func, last_node, flow):
+    """
+    Forward pass of the Ebli model with variable number of layers
+    """
+    n_layers = (len(weights) - 1) / 3
+    assert n_layers % 1 == 0, 'wrong number of weights'
+    cur_out = flow
+    for i in range(int(n_layers)):
+        cur_out = cur_out @ weights[i * 3] \
+                  + S_lower @ cur_out @ weights[i*3 + 1] \
+                  + S_upper @ cur_out @ weights[i*3 + 2]
+
+        cur_out = leaky_relu(cur_out)
+
+    logits = Bcond_func(last_node) @ cur_out @ weights[-1]
+    return logits - logsumexp(logits)
+
+# Bunch function
+def bunch_func(weights, S_00, S_10, S_01, S_11, S_21, S_12, S_22, nbrhoods, last_node, flow):
+    """
+    Forward pass of the Bunch model with variable number of layers
+    """
+    n_layers = (len(weights)) / 7
+    assert n_layers % 1 == 0, 'wrong number of weights'
+    cur_out = [np.zeros((S_00.shape[1], 1)), flow, np.zeros((S_22.shape[1], 1))]
+
+    for i in range(int(n_layers)):
+        next_out = [None, None, None]
+        # node level
+        next_out[0] = S_00 @ cur_out[0] @ weights[i * 7] \
+                   + S_10 @ cur_out[1] @ weights[i * 7 + 1]
+
+        next_out[1] = S_01 @ cur_out[0] @ weights[i * 7 + 2] \
+                   + S_11 @ cur_out[1] @ weights[i * 7 + 3] \
+                   + S_21 @ cur_out[2] @ weights[i * 7 + 4]
+
+        next_out[2] = S_12 @ cur_out[1] @ weights[i * 7 + 5] \
+                   + S_22 @ cur_out[2] @ weights[i * 7 + 6]
+
+
+        cur_out = [relu(c) for c in next_out]
+
+
+    nodes_out = cur_out[0]
+
+    # values at nbrs of last node
+    logits = nodes_out[nbrhoods[last_node]]
+
+    return logits - logsumexp(logits)
+
 
 def data_setup(hops=(1,), load=True, folder_suffix='schaub'):
     """
@@ -176,8 +243,21 @@ def data_setup(hops=(1,), load=True, folder_suffix='schaub'):
             L1_lower = F @ L1_lower @ F
             L1_upper = F @ L1_upper @ F
 
-        shifts = [L1_lower, L1_upper]
-        # shifts = [L1_lower, L1_lower]
+
+        if HYPERPARAMS['model'] == 'scone':
+            shifts = [L1_lower, L1_upper]
+            # shifts = [L1_lower, L1_lower]
+
+        elif HYPERPARAMS['model'] == 'ebli':
+            L1 = L1_lower + L1_upper
+            shifts = [L1, L1 @ L1] # L1, L1^2
+
+        elif HYPERPARAMS['model'] == 'bunch':
+            # S_00, S_01, S_01, S_11, S_21, S_12, S_22
+            shifts = compute_shift_matrices(B1, B2)
+
+        else:
+            raise Exception('invalid model type')
 
     # Build E_lookup for multi-hop training
     e = onp.nonzero(B1.T)[1]
@@ -223,7 +303,10 @@ def data_setup(hops=(1,), load=True, folder_suffix='schaub'):
         return B1_jax[Nv]
 
     for i in range(len(inputs_all)):
-        inputs_all[i][0] = Bconds_func
+        if HYPERPARAMS['model'] != 'bunch':
+            inputs_all[i][0] = Bconds_func
+        else:
+            inputs_all[i][0] = nbrhoods
 
     return inputs_all, y_all, train_mask, test_mask, shifts, G_undir, E_lookup, nbrhoods, n_nbrs, target_nodes_all, prefixes
 
@@ -239,7 +322,7 @@ def train_model():
 
     last_nodes = inputs_1hop[1]
 
-    in_axes = tuple([None, None, None, None, 0, 0])
+    in_axes = tuple(([None] * len(shifts)) + [None, None, 0, 0])
 
     # Train Markov model
     if HYPERPARAMS['markov'] == 1:
@@ -349,10 +432,19 @@ def train_model():
         print(markov.test(prefixes_lower, targets_2hop_lower, 2))
         raise Exception
 
-    # Initialize SCoNe model
+    # Initialize model
     scone = Scone_GCN(HYPERPARAMS['epochs'], HYPERPARAMS['learning_rate'], HYPERPARAMS['batch_size'], HYPERPARAMS['weight_decay'])
 
-    scone.setup(scone_func, HYPERPARAMS['hidden_layers'], shifts, inputs_1hop, y_1hop, in_axes, train_mask)
+    if HYPERPARAMS['model'] == 'scone':
+        model_func = scone_func
+    elif HYPERPARAMS['model'] == 'ebli':
+        model_func = ebli_func
+    elif HYPERPARAMS['model'] == 'bunch':
+        model_func = bunch_func
+    else:
+        raise Exception('invalid model')
+
+    scone.setup(model_func, HYPERPARAMS['hidden_layers'], shifts, inputs_1hop, y_1hop, in_axes, train_mask, model_type=HYPERPARAMS['model'])
 
     if HYPERPARAMS['regional']:
         # Train either on upper region only or all data (synthetic dataset)
@@ -366,6 +458,7 @@ def train_model():
                                                                   np.average([G_undir.degree[node] for node in
                                                                               G_undir.nodes])))
         print('Training paths: {}, Test paths: {}'.format(train_mask.sum(), test_mask.sum()))
+        print('Model: {}'.format(HYPERPARAMS['model']))
 
     # load a model from file + train it more
     if HYPERPARAMS['load_model']:

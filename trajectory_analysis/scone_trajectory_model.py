@@ -44,9 +44,17 @@ class Scone_GCN():
         Computes cross-entropy loss per flow
         """
         preds = self.model(weights, *self.shifts, *inputs)[mask==1]
-
+        # raise Exception
         # cross entropy + ridge regularization
-        return -np.sum(preds * y[mask==1]) / np.sum(mask) + (self.weight_decay * (np.linalg.norm(weights[:3])**2 + np.linalg.norm(weights[3:9])**2 + np.linalg.norm(weights[9])**2))
+
+        n_shifts = len(self.shifts)
+
+        if self.model_type != 'bunch':
+            n_shifts += 1 # for identity layer
+            return -np.sum(preds * y[mask==1]) / np.sum(mask) + (self.weight_decay * (np.linalg.norm(weights[:n_shifts])**2 + np.linalg.norm(weights[n_shifts:-1])**2 + np.linalg.norm(weights[-1])**2))
+        else:
+            return -np.sum(preds * y[mask==1]) / np.sum(mask) + (self.weight_decay * (np.linalg.norm(weights[:n_shifts])**2 + np.linalg.norm(weights[n_shifts:-n_shifts])**2 + np.linalg.norm(weights[-n_shifts:])**2))
+
 
     def accuracy(self, shifts, inputs, y, mask, n_nbrs):
         """
@@ -88,7 +96,7 @@ class Scone_GCN():
 
         true_choice = onp.argmax(y, axis=1).reshape((y.shape[0],))
         true_probs = preds[all_row_idxs, true_choice]
-        # print([r[0] for r in random_probs[:20]], [r[0][0] for r in target_probs[:20]])
+
 
         correct = 0
         true_masked, random_masked = true_probs[mask==1], random_probs[mask==1]
@@ -209,6 +217,7 @@ class Scone_GCN():
         :param in_channels: # of channels in model inputs
         :param hidden_layers: see :function train:
         :param out_channels: # of channels in model outputs
+        :param model_type:   what model this is (Bunch has slightly different weights)
         """
         weight_shapes = []
         if len(hidden_layers) > 0:
@@ -218,7 +227,10 @@ class Scone_GCN():
                 for _ in range(hidden_layers[i+1][0]):
                     weight_shapes += [(hidden_layers[i][1], hidden_layers[i+1][1])]
 
-            weight_shapes += [(hidden_layers[-1][1], out_channels)]
+            if self.model_type == 'bunch':
+                weight_shapes += [(hidden_layers[-1][1], out_channels)] * hidden_layers[-1][0]
+            else:
+                weight_shapes += [(hidden_layers[-1][1], out_channels)]
 
             self.weights = []
             for s in weight_shapes:
@@ -227,10 +239,15 @@ class Scone_GCN():
         else:
             self.weights = [(in_channels, out_channels)]
 
-    def setup(self, model, hidden_layers, shifts, inputs, y, in_axes, train_mask):
+        print('# of parameters: {}'.format(onp.sum([onp.prod(w) for w in weight_shapes])))
+
+
+    def setup(self, model, hidden_layers, shifts, inputs, y, in_axes, train_mask, model_type='scone'):
         """
         Set up model for training / calling
         """
+        self.model_type = model_type
+
         n_train_samples = sum(train_mask)
 
         self.shifts = shifts
@@ -251,7 +268,7 @@ class Scone_GCN():
 
         :param model: NN function
         :param hidden_layers: list of tuples (# weight matrices, # of channels) for each hidden layer
-        :param imputs: inputs to model; X matrix must be last
+        :param inputs: inputs to model; X matrix must be last
         :param y: desired outputs
         :param in_axes: axes of model inputs to batch over
         :param test_ratio: ratio of data used as test data
@@ -294,6 +311,8 @@ class Scone_GCN():
 
         self.adam_state = init_fun(self.weights)
         unshuffled_batch_mask = onp.array([1] * self.batch_size + [0] * (N - self.batch_size))
+
+
 
         # train
         for i in range(self.epochs * n_batches):
