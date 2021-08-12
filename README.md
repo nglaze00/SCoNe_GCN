@@ -1,5 +1,5 @@
 # Simplicial Complex Net (SCoNe)
-A convolutional neural network architecture for trajectory prediction on simplicial complexes (i.e. graphs). Uses higher-order graph structure (triangles) in the graph to train very generalizable trajectory prediction models. Paper can be found on [arXiv](https://arxiv.org/abs/2102.10058).
+A convolutional neural network architecture for trajectory prediction on simplicial complexes (i.e. graphs). In addition to node- and edge-level data, uses higher-order structures (triangles) in the graph to train very generalizable trajectory prediction models. Paper can be found on [arXiv](https://arxiv.org/abs/2102.10058).
 
 ## Use
 1. Clone this repo 
