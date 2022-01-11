@@ -233,7 +233,7 @@ def data_setup(hops=(1,), load=True, folder_suffix='schaub'):
         target_nodes_all.append(target_nodes)
 
 
-        inputs_all.append([None, np.array(last_nodes), X])
+        inputs_all.append([None, onp.array(last_nodes), X])
         y_all.append(y)
 
         # Define shifts
